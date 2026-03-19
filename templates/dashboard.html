@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LexView Pro - Mis Expedientes y Agenda</title>
+    <style>
+        body { background-color: #0d0d0d; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; }
+        
+        nav { 
+            display: flex; justify-content: space-between; align-items: center; 
+            padding: 15px 30px; background: #1a1a1a; border-bottom: 2px solid #007bff; 
+            position: sticky; top: 0; z-index: 1000;
+        }
+
+        /* Layout con Agenda Lateral */
+        .main-layout { display: flex; width: 100%; min-height: 100vh; }
+
+        .content-area { flex-grow: 1; padding-right: 300px; } /* Espacio para la agenda */
+
+        .grid-container { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); 
+            gap: 25px; padding: 40px; 
+        }
+
+        /* Estilo de la Agenda */
+        .agenda-sidebar {
+            width: 280px; background: #161616; border-left: 1px solid #333;
+            position: fixed; right: 0; top: 60px; height: calc(100vh - 60px);
+            padding: 20px; overflow-y: auto; box-sizing: border-box;
+        }
+
+        .agenda-title { color: #007bff; font-weight: bold; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+
+        .vence-card { 
+            background: #222; border-radius: 8px; padding: 12px; margin-bottom: 12px; 
+            border-left: 4px solid #ff4d4d; position: relative;
+        }
+        .vence-card.hoy { border-left-color: #28a745; background: #1a2a1a; }
+        .vence-date { font-size: 0.7rem; color: #888; font-weight: bold; }
+        .vence-titulo { font-size: 0.85rem; color: #fff; margin: 3px 0; }
+        .vence-causa { font-size: 0.7rem; color: #007bff; font-style: italic; }
+
+        /* Estilo de Cards de Causa */
+        .card { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 20px; transition: 0.2s; display: flex; flex-direction: column; position: relative; }
+        .card:hover { border-color: #007bff; transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+        .expte-name { font-weight: bold; font-size: 1.2rem; margin-bottom: 10px; color: #fff; text-align: center; }
+        
+        .ficha-mini { background: #000; border-radius: 8px; padding: 12px; margin-bottom: 15px; border-left: 4px solid #007bff; }
+        .ficha-label { font-size: 0.6rem; color: #007bff; text-transform: uppercase; font-weight: bold; margin-bottom: 2px; }
+        .ficha-valor { font-size: 0.9rem; margin-bottom: 8px; color: #eee; }
+        .monto-valor { color: #28a745; font-weight: bold; }
+        
+        .btn-edit { background: none; border: 1px solid #444; color: #666; font-size: 0.6rem; cursor: pointer; padding: 2px 5px; border-radius: 3px; float: right; }
+        .btn-edit:hover { border-color: #007bff; color: #007bff; }
+        
+        .file-list { background: #222; border-radius: 5px; padding: 10px; margin-bottom: 15px; max-height: 100px; overflow-y: auto; font-size: 0.8rem; }
+        .alert { padding: 10px; background: #28a745; color: white; border-radius: 5px; text-align: center; margin: 10px 40px; position: fixed; top: 70px; left: 50%; transform: translateX(-50%); z-index: 2000; width: 300px; }
+        
+        .form-agenda-mini { background: #000; padding: 10px; border-radius: 5px; margin-top: 10px; border: 1px solid #333; }
+        .form-agenda-mini input { width: 100%; background: #222; border: 1px solid #444; color: #fff; font-size: 0.7rem; margin-bottom: 5px; padding: 3px; }
+
+        .info-footer { margin-top: 50px; padding-bottom: 30px; font-size: 0.8rem; color: #555; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <nav>
+        <div style="color: #007bff; font-weight: bold; font-size: 1.5rem; letter-spacing: 1px;">LEXVIEW PRO</div>
+        <div style="color: white;">Bienvenido, <strong>{{ usuario }}</strong> | <a href="/logout" style="color: #ff4d4d; text-decoration: none;">CERRAR SESIÓN</a></div>
+    </nav>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}{% for m in messages %}<div class="alert">✅ {{ m }}</div>{% endfor %}{% endif %}
+    {% endwith %}
+
+    <div class="main-layout">
+        <div class="content-area">
+            <div class="grid-container">
+                {% for expte in expedientes %}
+                <div class="card">
+                    <div class="expte-name">📂 {{ expte.nombre }}</div>
+
+                    <div class="ficha-mini" id="view-{{ loop.index }}">
+                        <button class="btn-edit" onclick="document.getElementById('view-{{ loop.index }}').style.display='none'; document.getElementById('edit-{{ loop.index }}').style.display='block';">EDITAR</button>
+                        <div class="ficha-label">Estado Procesal</div>
+                        <div class="ficha-valor" style="color: #ffc107;">{{ expte.estado }}</div>
+                        <div class="ficha-label">Monto del Juicio</div>
+                        <div class="ficha-valor monto-valor">$ {{ expte.monto }}</div>
+                        <div class="ficha-label">Notas de Estrategia</div>
+                        <div class="ficha-valor" style="font-size: 0.75rem; font-style: italic; color: #888;">{{ expte.notas if expte.notas else 'Sin notas...' }}</div>
+                    </div>
+
+                    <form action="/actualizar_ficha/{{ expte.nombre }}" method="POST" class="ficha-mini" id="edit-{{ loop.index }}" style="display:none; border-left-color: #ffc107;">
+                        <input type="text" name="estado" value="{{ expte.estado }}" placeholder="Estado" style="width:100%; background:#222; color:white; border:1px solid #444; margin-bottom:5px; font-size:0.8rem;">
+                        <input type="text" name="monto" value="{{ expte.monto }}" placeholder="Monto" style="width:100%; background:#222; color:white; border:1px solid #444; margin-bottom:5px; font-size:0.8rem;">
+                        <textarea name="notas" placeholder="Notas" style="width:100%; background:#222; color:white; border:1px solid #444; font-size:0.7rem;">{{ expte.notas }}</textarea>
+                        <button type="submit" style="background:#28a745; color:white; border:none; padding:5px; width:100%; border-radius:3px; margin-top:5px; font-weight:bold; font-size:0.7rem;">GUARDAR</button>
+                    </form>
+
+                    <a href="/visor/{{ expte.nombre }}" style="display: block; text-align: center; background: #007bff; color: white; padding: 10px; text-decoration: none; border-radius: 6px; font-weight: bold; margin-bottom: 10px;">
+                        VER LIBRO DIGITAL
+                    </a>
+
+                    <div class="file-list">
+                        <p style="font-size: 0.6rem; color: #007bff; font-weight: bold; margin:0 0 5px 0;">ARCHIVOS:</p>
+                        {% for archivo in expte.archivos %}
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid #333; padding:2px 0;">
+                            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:180px;">{{ archivo }}</span>
+                            <a href="/eliminar_archivo/{{ expte.nombre }}/{{ archivo }}" style="color:red; text-decoration:none;">&times;</a>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <form action="/subir_archivo/{{ expte.nombre }}" method="POST" enctype="multipart/form-data">
+                        <input type="file" name="archivo_pdf" accept=".pdf" required style="font-size: 0.6rem; margin-bottom: 5px;">
+                        <button type="submit" style="width:100%; background:#222; color:#007bff; border:1px solid #007bff; padding:5px; border-radius:4px; font-size:0.7rem; font-weight:bold; cursor:pointer;">+ SUBIR PDF</button>
+                    </form>
+
+                    <button onclick="let f=document.getElementById('ag-{{loop.index}}'); f.style.display=f.style.display==='none'?'block':'none';" style="background:none; border:none; color:#ff4d4d; font-size:0.65rem; cursor:pointer; margin-top:10px; text-decoration:underline;">+ Agendar Vencimiento</button>
+                    
+                    <form id="ag-{{loop.index}}" action="/agregar_vencimiento" method="POST" class="form-agenda-mini" style="display:none;">
+                        <input type="hidden" name="causa_nombre" value="{{ expte.nombre }}">
+                        <input type="date" name="fecha" required>
+                        <input type="text" name="titulo" placeholder="Ej: Vence traslado" required>
+                        <button type="submit" style="width:100%; background:#ff4d4d; color:white; border:none; font-size:0.6rem; padding:3px; border-radius:3px; cursor:pointer;">AGENDAR</button>
+                    </form>
+
+                    <a href="/eliminar_causa/{{ expte.nombre }}" onclick="return confirm('¿Eliminar causa?')" style="text-align:center; color:#444; font-size:0.6rem; text-decoration:none; margin-top:15px;">Borrar Carpeta</a>
+                </div>
+                {% endfor %}
+
+                <div class="card" style="border: 2px dashed #007bff; background: rgba(0,123,255,0.03); justify-content: center;">
+                    <div style="text-align: center;">
+                        <h3 style="color: #007bff; margin-top: 0;">+ Nueva Causa</h3>
+                        <form action="/crear_causa" method="POST">
+                            <input type="text" name="nombre_causa" placeholder="Nombre de causa" required style="width: 90%; padding: 8px; background: #222; color: white; border: 1px solid #444; border-radius: 5px; margin-bottom: 10px;">
+                            <button type="submit" style="background: #007bff; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 90%;">CREAR</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="info-footer">LexView Pro v5.5 — Corrientes, Argentina 2026</div>
+        </div>
+
+        <div class="agenda-sidebar">
+            <div class="agenda-title">
+                <span>📅 AGENDA</span>
+            </div>
+
+            {% for item in agenda %}
+            <div class="vence-card {% if item.fecha == hoy %}hoy{% endif %}">
+                <div class="vence-date">{{ item.fecha.strftime('%d/%m/%Y') }}</div>
+                <div class="vence-titulo">{{ item.titulo }}</div>
+                <div class="vence-causa">Causa: {{ item.causa_nombre }}</div>
+                {% if item.fecha == hoy %}
+                <div style="color:#28a745; font-size:0.6rem; font-weight:bold; margin-top:5px;">⚠️ VENCE HOY</div>
+                {% endif %}
+            </div>
+            {% else %}
+            <p style="color:#555; font-size:0.8rem; text-align:center; margin-top:40px;">No hay vencimientos próximos.</p>
+            {% endfor %}
+            
+            <div style="margin-top: 30px; border-top: 1px solid #333; padding-top: 15px;">
+                <p style="color: #888; font-size: 0.7rem; text-align: center;">Los vencimientos se ordenan automáticamente por fecha.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-cerrar alertas después de 3 segundos
+        setTimeout(() => {
+            const alert = document.querySelector('.alert');
+            if(alert) alert.style.display = 'none';
+        }, 3000);
+    </script>
+
+</body>
+</html>

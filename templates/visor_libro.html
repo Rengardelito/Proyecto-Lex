@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <title>LexView Pro - Libro Digital</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
+    <script src="https://rawcdn.githack.com/blasten/turn.js/master/lib/turn.min.js"></script>
+    <style>
+        body { background: #1c1c1c; margin: 0; color: white; font-family: sans-serif; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
+        .toolbar { width: 100%; background: #2d2d2d; height: 50px; display: flex; align-items: center; padding: 0 20px; border-bottom: 1px solid #444; justify-content: space-between; position: fixed; top: 0; z-index: 10; }
+        #loading { position: fixed; top:0; left:0; width:100%; height:100%; background: #1c1c1c; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 99; }
+        .spinner { border: 4px solid #333; border-top: 4px solid #007bff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #flipbook-container { margin-top: 80px; }
+        canvas { background: white; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <p id="status">Preparando foja 1...</p>
+    </div>
+
+    <div class="toolbar">
+        <span><strong>LexView Pro</strong> | Causa: {{ nombre_causa }}</span>
+        <span>Página: <span id="current-page">1</span></span>
+    </div>
+
+    <div id="flipbook-container">
+        <div id="flipbook"></div>
+    </div>
+
+    <script>
+        const url = '/get_pdf/{{ nombre_causa }}';
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
+
+        async function initFlipbook() {
+            const pdf = await pdfjsLib.getDocument(url).promise;
+            const book = $('#flipbook');
+
+            for (let i = 1; i <= pdf.numPages; i++) {
+                $('#status').text(`Renderizando foja ${i} de ${pdf.numPages}...`);
+                const page = await pdf.getPage(i);
+                const viewport = page.getViewport({ scale: 1.3 });
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                book.append(canvas);
+            }
+
+            $('#loading').fadeOut();
+            book.turn({ 
+                width: 1000, 
+                height: 680, 
+                autoCenter: true, 
+                gradients: true,
+                when: {
+                    turning: function(e, page) { $('#current-page').text(page); }
+                }
+            });
+        }
+        initFlipbook();
+    </script>
+</body>
+</html>

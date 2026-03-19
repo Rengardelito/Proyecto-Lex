@@ -1,0 +1,228 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>Visor de Expedientes Pro - v5.3 (Conectado)</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/3/turn.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
+    
+    <style>
+        body { 
+            background-color: #0d0d0d; display: flex; flex-direction: column; 
+            height: 100vh; margin: 0; font-family: 'Segoe UI', sans-serif; color: #e0e0e0;
+            overflow: hidden;
+        }
+
+        #toolbar {
+            width: 100%; background: #1a1a1a; padding: 10px 20px;
+            display: flex; justify-content: center; gap: 15px; align-items: center;
+            border-bottom: 2px solid #333; z-index: 1000; box-sizing: border-box;
+        }
+
+        /* Pantalla de Carga */
+        #loading-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(13, 13, 13, 0.95); display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 5000;
+        }
+        .spinner {
+            width: 50px; height: 50px; border: 5px solid #333; border-top: 5px solid #007bff;
+            border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .btn {
+            background-color: #333; color: white; padding: 8px 12px;
+            border-radius: 6px; cursor: pointer; border: 1px solid #444; font-weight: 500;
+            display: flex; align-items: center; gap: 5px; font-size: 0.85rem;
+        }
+        .btn-blue { background-color: #0062cc; border: none; }
+        .btn-orange { background-color: #d35400; border: none; }
+
+        .search-input { background: #222; border: 1px solid #444; color: white; padding: 8px 12px; border-radius: 5px; width: 150px; }
+        #search-results { position: absolute; top: 45px; left: 0; width: 220px; max-height: 300px; background: #1a1a1a; border: 1px solid #007bff; border-radius: 5px; overflow-y: auto; display: none; z-index: 2000; }
+        .result-item { padding: 10px; border-bottom: 1px solid #333; cursor: pointer; font-size: 0.8rem; }
+        .result-item:hover { background: #007bff; }
+
+        #viewport { width: 100%; height: calc(100vh - 100px); overflow: auto; padding: 150px; box-sizing: border-box; cursor: grab; }
+        #album-container { position: relative; transform-origin: 0 0; margin: 0 auto; display: table; transition: transform 0.1s; }
+        #album-wrapper { width: 1000px; height: 700px; margin: 0 auto; }
+        .page { background-color: white; box-shadow: 0 0 40px rgba(0,0,0,0.8); }
+        canvas { width: 100%; height: 100%; display: block; transition: transform 0.3s; }
+
+        #footer { width: 100%; height: 40px; background: #1a1a1a; display: flex; align-items: center; padding: 0 25px; box-sizing: border-box; border-top: 1px solid #333; gap: 20px; }
+        #progress-container { flex-grow: 1; height: 6px; background: #222; border-radius: 10px; }
+        #progress-bar { width: 0%; height: 100%; background: #007bff; }
+        #page-counter { font-size: 0.85rem; min-width: 130px; text-align: right; color: #aaa; }
+    </style>
+</head>
+<body>
+
+    <div id="toolbar">
+        
+        <a href="/" class="btn" style="text-decoration: none; background-color: #c0392b; margin-right: 10px;">✖ Cerrar</a>
+    
+        <span style="color: #007bff; font-weight: bold; margin-right: 20px;">LexView Pro</span>
+        
+        <span style="color: #007bff; font-weight: bold; margin-right: 20px;">LexView Pro</span>
+        
+        <button class="btn" onclick="cambiarZoom(-0.25)">➖</button>
+        <span id="zoom-label">100%</span>
+        <button class="btn" onclick="cambiarZoom(0.25)">➕</button>
+        <button class="btn btn-orange" onclick="rotarContenido()">🔄 Girar</button>
+
+        <div class="search-container" style="position:relative">
+            <input type="text" id="keyword-search" class="search-input" placeholder="🔍 Buscar palabra...">
+            <div id="search-results"></div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 0.85rem; color: #888;">Ir a foja:</span>
+            <input type="number" id="goto-page-input" style="width:50px; background:#222; color:#00ff00; border:1px solid #444; padding:5px; text-align:center" placeholder="№">
+        </div>
+        <button class="btn" onclick="toggleFullScreen()">📺</button>
+        </div>
+
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <div id="loading-text">Iniciando motor de visualización...</div>
+    </div>
+
+    <div id="viewport">
+        <div id="album-container">
+            <div id="album-wrapper">
+                <div id="album"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="footer">
+        <div id="progress-container"><div id="progress-bar"></div></div>
+        <div id="page-counter">Foja: 0 / 0</div>
+    </div>
+
+    <script>
+        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
+
+        let zoomActual = 1;
+        let totalPages = 0;
+        let rotacionActual = 0;
+        let currentPdf = null;
+
+        // --- FUNCIÓN DE CARGA AUTOMÁTICA DESDE PYTHON ---
+        // Buscá esta línea en tu index.html y reemplazala:
+// --- FUNCIÓN DE CARGA ACTUALIZADA ---
+        async function cargarExpedienteAutomatico() {
+            $('#loading-overlay').css('display', 'flex');
+            
+            try {
+                // CAMBIO CLAVE: Usamos url_for para que Flask nos dé la ruta real
+                // y agregamos un "timestamp" para evitar que el navegador use una versión vieja (caché)
+                const urlServidor = "{{ url_for('obtener_pdf', nombre_pdf=archivo_pdf) }}?t=" + new Date().getTime();
+                
+                console.log("Intentando cargar desde:", urlServidor); // Para que lo veas en F12
+
+                const response = await fetch(urlServidor); 
+                
+                if (!response.ok) throw new Error("El servidor no entregó el PDF");
+
+                const data = await response.arrayBuffer();
+                const typedarray = new Uint8Array(data);
+                
+                currentPdf = await pdfjsLib.getDocument(typedarray).promise;
+                totalPages = currentPdf.numPages;
+                
+                const newAlbum = $('#album');
+                newAlbum.empty(); // Limpiamos por si había algo
+
+                for (let i = 1; i <= totalPages; i++) {
+                    $('#loading-text').text(`Procesando foja ${i} de ${totalPages}...`);
+                    
+                    const pageDiv = $('<div class="page"></div>');
+                    const canvas = document.createElement('canvas');
+                    pageDiv.append(canvas);
+                    newAlbum.append(pageDiv);
+                    await renderizarPagina(currentPdf, i, canvas);
+                }
+
+                newAlbum.turn({
+                    width: 1000, height: 700, autoCenter: true, gradients: true, shadows: true,
+                    when: { turned: function(e, page) {
+                        const porcentaje = (page / totalPages) * 100;
+                        document.getElementById('progress-bar').style.width = porcentaje + "%";
+                        document.getElementById('page-counter').innerText = `Foja: ${page} / ${totalPages}`;
+                    }}
+                });
+
+                $('#loading-overlay').hide();
+            } catch (error) {
+                console.error("ERROR CARGANDO PDF:", error);
+                $('#loading-text').html("<span style='color:red'>Error al cargar el expediente:</span><br>" + error.message);
+            }
+        }
+
+        // Ejecutar carga al iniciar
+        $(document).ready(function() {
+            cargarExpedienteAutomatico();
+        });
+
+        async function renderizarPagina(pdf, pageNumber, canvas) {
+            const page = await pdf.getPage(pageNumber);
+            const vPage = page.getViewport({ scale: 1.5 });
+            const context = canvas.getContext('2d');
+            canvas.height = vPage.height; canvas.width = vPage.width;
+            await page.render({canvasContext: context, viewport: vPage}).promise;
+        }
+
+        function cambiarZoom(delta) {
+            zoomActual = Math.min(Math.max(0.4, zoomActual + delta), 4.0);
+            document.getElementById('album-container').style.transform = `scale(${zoomActual})`;
+            document.getElementById('zoom-label').innerText = Math.round(zoomActual * 100) + "%";
+        }
+
+        document.getElementById('goto-page-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const p = parseInt(this.value);
+                if (p >= 1 && p <= totalPages) $('#album').turn('page', p);
+                this.blur();
+            }
+        });
+
+        const searchInput = document.getElementById('keyword-search');
+        const searchResults = document.getElementById('search-results');
+        searchInput.addEventListener('keypress', async function(e) {
+            if (e.key === 'Enter') {
+                const query = this.value.toLowerCase().trim();
+                if (!query || !currentPdf) return;
+                searchResults.innerHTML = '<div class="result-item">Buscando...</div>';
+                searchResults.style.display = 'block';
+                const foundPages = [];
+                for (let i = 1; i <= totalPages; i++) {
+                    const page = await currentPdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const fullText = textContent.items.map(item => item.str).join(' ').toLowerCase();
+                    if (fullText.includes(query)) foundPages.push(i);
+                }
+                if (foundPages.length > 0) {
+                    searchResults.innerHTML = foundPages.map(p => `<div class="result-item" onclick="irAPagina(${p})">✓ Foja ${p}</div>`).join('');
+                } else { searchResults.innerHTML = '<div class="result-item">No se encontró</div>'; }
+            }
+        });
+
+        function irAPagina(p) { $('#album').turn('page', p); searchResults.style.display = 'none'; }
+        function rotarContenido() { rotacionActual = (rotacionActual + 90) % 360; const escala = (rotacionActual % 180 === 0) ? 1 : 0.75; $('canvas').css('transform', `rotate(${rotacionActual}deg) scale(${escala})`); }
+        function toggleFullScreen() { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); }
+        
+        let isDown = false, startX, startY, scrollLeft, scrollTop;
+        const v = document.getElementById('viewport');
+        v.addEventListener('mousedown', (e) => { isDown = true; startX = e.pageX - v.offsetLeft; startY = e.pageY - v.offsetTop; scrollLeft = v.scrollLeft; scrollTop = v.scrollTop; });
+        v.addEventListener('mouseup', () => isDown = false);
+        v.addEventListener('mousemove', (e) => { if (!isDown) return; v.scrollLeft = scrollLeft - (e.pageX - v.offsetLeft - startX) * 1.5; v.scrollTop = scrollTop - (e.pageY - v.offsetTop - startY) * 1.5; });
+        window.addEventListener('wheel', (e) => { if (e.ctrlKey) { e.preventDefault(); cambiarZoom(e.deltaY > 0 ? -0.2 : 0.2); } }, { passive: false });
+        $(window).bind('keydown', (e) => { if (e.keyCode == 37) $('#album').turn('previous'); if (e.keyCode == 39) $('#album').turn('next'); });
+        document.addEventListener('click', (e) => { if (!e.target.closest('.search-container')) searchResults.style.display = 'none'; });
+    </script>
+</body>
+</html>

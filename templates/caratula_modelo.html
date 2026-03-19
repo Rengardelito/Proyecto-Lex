@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page { size: A4; margin: 10mm; }
+        body { 
+            font-family: 'Arial', sans-serif; 
+            margin: 0; padding: 0; 
+            color: #1a1a1a;
+        }
+        .main-container {
+            border: 3px solid #000;
+            height: 270mm;
+            padding: 10mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .header {
+            text-align: center;
+            border-bottom: 5px double #000;
+            padding-bottom: 20px;
+        }
+        .republica { font-size: 32px; font-weight: 900; letter-spacing: 8px; }
+        .poder-judicial { font-size: 18px; margin-top: 10px; font-weight: bold; }
+
+        .nro-expte-seccion {
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px;
+            background: #f0f0f0;
+            border: 2px solid #000;
+        }
+        .label-grande { font-size: 14px; text-transform: uppercase; letter-spacing: 3px; font-weight: bold; }
+        .valor-gigante { font-size: 55px; font-weight: 900; display: block; margin-top: 5px; }
+
+        .info-tribunal {
+            margin-top: 50px;
+            text-align: center;
+        }
+        .juzgado-v { font-size: 26px; font-weight: bold; text-transform: uppercase; }
+        .secretaria-v { font-size: 22px; margin-top: 10px; }
+
+        .causa-box {
+            margin-top: 60px;
+            text-align: center;
+            border-top: 1px solid #000;
+            border-bottom: 1px solid #000;
+            padding: 40px 10px;
+        }
+        .causa-titulo { 
+            font-size: 30px; 
+            font-weight: 900; 
+            text-transform: uppercase;
+            line-height: 1.2;
+        }
+
+        .materia-seccion {
+            text-align: center;
+            margin-top: 50px;
+        }
+        .materia-v { font-size: 24px; font-weight: bold; text-decoration: underline; }
+
+        .footer {
+            text-align: center;
+            border-top: 1px solid #ccc;
+            padding-top: 20px;
+            font-size: 14px;
+            font-style: italic;
+            color: #555;
+        }
+        
+        /* Esto hace que el número de expte se vea gigante al costado como en la oficial */
+        .lateral-nro {
+            position: absolute;
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+            left: 20px;
+            top: 150px;
+            font-size: 80px;
+            font-weight: 900;
+            color: rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="lateral-nro">{{ nro_expediente }}</div>
+    
+    <div class="main-container">
+        <div class="header">
+            <div class="republica">REPÚBLICA ARGENTINA</div>
+            <div class="poder-judicial">PODER JUDICIAL DE LA PROVINCIA DE CORRIENTES</div>
+        </div>
+
+        <div class="nro-expte-seccion">
+            <span class="label-grande">Expediente Número</span>
+            <span class="valor-gigante">{{ nro_expediente }}</span>
+        </div>
+
+        <div class="info-tribunal">
+            <div class="juzgado-v">{{ juzgado }}</div>
+            <div class="secretaria-v">Secretaría: {{ secretaria }}</div>
+        </div>
+
+        <div class="causa-box">
+            <span class="label-grande">Carátula / Partes</span><br><br>
+            <div class="causa-titulo">{{ titulo_causa }}</div>
+        </div>
+
+        <div class="materia-seccion">
+            <span class="label-grande">Materia</span><br>
+            <div class="materia-v">{{ materia }}</div>
+        </div>
+
+        <div class="footer">
+            Documento Digital Generado por Sistema LexView Pro — Corrientes, Argentina
+        </div>
+    </div>
+</body>
+</html>

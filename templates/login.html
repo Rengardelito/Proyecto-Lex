@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>LexView Pro - Acceso</title>
+    <style>
+        body { 
+            background: linear-gradient(135deg, #0d0d0d 0%, #1a2a40 100%); 
+            color: white; font-family: 'Segoe UI', sans-serif; 
+            display: flex; justify-content: center; align-items: center; 
+            height: 100vh; margin: 0; 
+        }
+        .login-box { 
+            background: rgba(26, 26, 26, 0.9); 
+            padding: 40px; border-radius: 15px; 
+            border: 1px solid #007bff; 
+            box-shadow: 0 0 20px rgba(0, 123, 255, 0.3);
+            width: 350px; text-align: center;
+        }
+        h1 { color: #007bff; font-size: 24px; margin-bottom: 30px; }
+        input { 
+            width: 100%; padding: 12px; margin: 10px 0; 
+            background: #222; border: 1px solid #444; 
+            color: white; border-radius: 5px; box-sizing: border-box;
+        }
+        button { 
+            width: 100%; padding: 12px; background: #007bff; 
+            border: none; color: white; cursor: pointer; 
+            font-weight: bold; border-radius: 5px; margin-top: 20px;
+            transition: 0.3s;
+        }
+        button:hover { background: #0056b3; box-shadow: 0 0 10px #007bff; }
+        .error { color: #ff4d4d; font-size: 14px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h1>LexView Pro</h1>
+        <p>Sistema de Gestión Táctica</p>
+        <form method="POST">
+            <input type="text" name="username" placeholder="Usuario" required>
+            <input type="password" name="password" placeholder="Contraseña" required>
+            <button type="submit">INGRESAR AL PANEL</button>
+        </form>
+        
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            {% for message in messages %}
+              <div class="error">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+    </div>
+</body>
+</html>

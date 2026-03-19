@@ -1,0 +1,15 @@
+{
+  "name": "LexView Pro",
+  "short_name": "LexView",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0d0d",
+  "theme_color": "#007bff",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/1048/1048953.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

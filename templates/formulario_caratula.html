@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configurar Carátula - LexView Pro</title>
+    <style>
+        body { background: #0d0d0d; color: white; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .form-container { background: #1a1a1a; padding: 30px; border-radius: 10px; border: 1px solid #007bff; width: 400px; }
+        input { width: 100%; padding: 10px; margin: 10px 0; background: #222; border: 1px solid #444; color: white; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background: #007bff; border: none; color: white; cursor: pointer; font-weight: bold; margin-top: 10px; }
+        h2 { color: #007bff; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="form-container">
+        <h2>Datos de Carátula</h2>
+        <p style="font-size: 0.8rem; color: #888;">Se solicita por única vez para el expediente: <strong>{{ nro_expediente }}</strong></p>
+        
+        <form action="/guardar_caratula/{{ nro_expediente }}" method="POST">
+            <input type="text" name="nro_expediente_form" placeholder="Nro de Expediente (Ej: 260115/24)" required>
+            <input type="text" name="titulo_causa" placeholder="Carátula (Ej: GARCIA C/ PROVINCIA)" required>
+            <input type="text" name="juzgado" placeholder="Juzgado" required>
+            <input type="text" name="secretaria" placeholder="Secretaría" required>
+            <input type="text" name="materia" placeholder="Materia (Ej: Laboral)" required>
+            <button type="submit">GENERAR EXPEDIENTE DIGITAL</button>
+        </form>
+    </div>
+</body>
+</html>
