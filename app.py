@@ -248,7 +248,7 @@ import shutil
 import pdfkit
 import json
 import os
-from datetime import date
+from datetime import date, datetime
 from flask import Flask, render_template, send_file, request, redirect, url_for, session, flash, send_from_directory
 from functools import wraps
 from PyPDF2 import PdfMerger
@@ -258,23 +258,18 @@ from werkzeug.utils import secure_filename
 app = Flask(__name__)
 app.secret_key = 'tu_llave_secreta_muy_segura'
 
-# --- CAMBIO A SQLITE PARA QUE SEA GRATIS ---
-# Esto crea un archivo llamado lexview.db en tu carpeta, no requiere servidor MySQL
-
-
-
-# Buscamos la URL secreta que pusimos en Render
+# --- CONFIGURACIÓN DE BASE DE DATOS ---
 database_url = os.environ.get('DATABASE_URL')
 
+# Corrección para que Render y SQLAlchemy se entiendan con PostgreSQL
 if database_url and database_url.startswith("postgres://"):
-    # Corregimos un detalle de nombres que pide Render
     database_url = database_url.replace("postgres://", "postgresql://", 1)
 
-# Si la encuentra (en Render), usa Postgres. Si no (en tu compu), usa SQLite.
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///lexview.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-
+# INICIALIZAR LA BASE DE DATOS (Esto arregla tus 9 errores)
+db = SQLAlchemy(app)
 
 # --- MODELOS ---
 class Usuario(db.Model):
@@ -296,14 +291,18 @@ class Vencimiento(db.Model):
     causa_nombre = db.Column(db.String(100)) 
     usuario_owner = db.Column(db.String(50)) 
 
-# --- CONFIG PDF (Linux para PythonAnywhere) ---
-# En tu PC es 'C:\\Program Files...', pero en el servidor es así:
-if os.name == 'nt': # Si es Windows (Tu PC)
+# --- CONFIG PDF ---
+if os.name == 'nt': 
     path_wkhtmltopdf = r'C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe'
-else: # Si es Linux (Servidor)
+else: 
     path_wkhtmltopdf = '/usr/bin/wkhtmltopdf'
 
-config_pdf = pdfkit.configuration(wkhtmltopdf=path_wkhtmltopdf)
+# Intentamos configurar pdfkit, pero si falla en Render no bloquea toda la app
+try:
+    config_pdf = pdfkit.configuration(wkhtmltopdf=path_wkhtmltopdf)
+except:
+    config_pdf = None
+
 BASE_DATOS_PDFS = 'expedientes_clientes'
 OUTPUT_STATIC = 'static/pdf_generados'
 
@@ -355,7 +354,6 @@ def dashboard():
 @app.route('/agregar_vencimiento', methods=['POST'])
 @login_required
 def agregar_vencimiento():
-    from datetime import datetime
     fecha_str = request.form.get('fecha')
     nueva_fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
     nuevo_vence = Vencimiento(fecha=nueva_fecha, titulo=request.form.get('titulo'), causa_nombre=request.form.get('causa_nombre'), usuario_owner=session['usuario'])
@@ -375,14 +373,17 @@ def abrir_visor(nro_expediente):
     with open(ruta_json, 'r', encoding='utf-8') as f: datos = json.load(f)
     html_caratula = render_template('caratula_modelo.html', **datos)
     ruta_caratula_pdf = os.path.join(ruta_carpeta_expte, 'caratula_generada.pdf')
-    pdfkit.from_string(html_caratula, ruta_caratula_pdf, configuration=config_pdf)
+    
+    if config_pdf:
+        pdfkit.from_string(html_caratula, ruta_caratula_pdf, configuration=config_pdf)
 
     nombre_archivo_final = f"{session['usuario']}_{nro_expediente}.pdf".lower().replace(" ", "_")
     ruta_destino = os.path.join(OUTPUT_STATIC, nombre_archivo_final)
     archivos = sorted([f for f in os.listdir(ruta_carpeta_expte) if f.endswith('.pdf') and f != 'caratula_generada.pdf'], key=lambda x: os.path.getmtime(os.path.join(ruta_carpeta_expte, x)))
 
     merger = PdfMerger()
-    merger.append(ruta_caratula_pdf)
+    if os.path.exists(ruta_caratula_pdf):
+        merger.append(ruta_caratula_pdf)
     for f in archivos: merger.append(os.path.join(ruta_carpeta_expte, f))
     merger.write(ruta_destino); merger.close()
     return render_template('index.html', archivo_pdf=nombre_archivo_final)
@@ -392,7 +393,6 @@ def abrir_visor(nro_expediente):
 def obtener_pdf(nombre_pdf):
     return send_from_directory(OUTPUT_STATIC, nombre_pdf)
 
-# --- RUTAS DE GESTIÓN (IGUALES) ---
 @app.route('/crear_causa', methods=['POST'])
 @login_required
 def crear_causa():
@@ -431,9 +431,15 @@ def actualizar_ficha(nro_expediente):
         db.session.commit()
     return redirect(url_for('dashboard'))
 
+# --- CREACIÓN DE TABLAS Y USUARIO INICIAL ---
+with app.app_context():
+    db.create_all()
+    # Si la base de datos de Postgres está vacía, crea tu usuario automáticamente
+    if not Usuario.query.filter_by(username='nico').first():
+        nuevo_usuario = Usuario(username='nico', password='123')
+        db.session.add(nuevo_usuario)
+        db.session.commit()
+        print("Usuario 'nico' creado exitosamente.")
+
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        if not Usuario.query.filter_by(username='nico').first():
-            db.session.add(Usuario(username='nico', password='123')); db.session.commit()
     app.run(debug=True)
