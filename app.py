@@ -262,11 +262,19 @@ app.secret_key = 'tu_llave_secreta_muy_segura'
 # Esto crea un archivo llamado lexview.db en tu carpeta, no requiere servidor MySQL
 
 
-basedir = os.path.abspath(os.path.dirname(__file__))
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'lexview.db')
+# Buscamos la URL secreta que pusimos en Render
+database_url = os.environ.get('DATABASE_URL')
+
+if database_url and database_url.startswith("postgres://"):
+    # Corregimos un detalle de nombres que pide Render
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+# Si la encuentra (en Render), usa Postgres. Si no (en tu compu), usa SQLite.
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///lexview.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+
+
 
 # --- MODELOS ---
 class Usuario(db.Model):
