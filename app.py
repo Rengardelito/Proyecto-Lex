@@ -260,7 +260,11 @@ app.secret_key = 'tu_llave_secreta_muy_segura'
 
 # --- CAMBIO A SQLITE PARA QUE SEA GRATIS ---
 # Esto crea un archivo llamado lexview.db en tu carpeta, no requiere servidor MySQL
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///lexview.db'
+
+
+basedir = os.path.abspath(os.path.dirname(__file__))
+
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'lexview.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
