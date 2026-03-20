@@ -257,13 +257,20 @@ from werkzeug.utils import secure_filename
 app = Flask(__name__)
 app.secret_key = 'tu_llave_secreta_muy_segura'
 
-# --- CONFIGURACIÓN DE BASE DE DATOS ---
+# --- CONFIGURACIÓN DE BASE DE DATOS (FORZADA) ---
 database_url = os.environ.get('DATABASE_URL')
 
-if database_url and database_url.startswith("postgres://"):
-    database_url = database_url.replace("postgres://", "postgresql://", 1)
+if not database_url:
+    # Si estás en tu computadora (sin variable de entorno), usa SQLite
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///lexview.db'
+    print("Conectado a: SQLite (Local)")
+else:
+    # Si estás en Render, FORZAMOS PostgreSQL
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    print("Conectado a: PostgreSQL (Render)")
 
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///lexview.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -297,7 +304,6 @@ else:
 try:
     config_pdf = pdfkit.configuration(wkhtmltopdf=path_wkhtmltopdf)
 except Exception as e:
-    print(f"AVISO: PDFKit no configurado (esto es normal en Render sin apt-get): {e}")
     config_pdf = None
 
 BASE_DATOS_PDFS = 'expedientes_clientes'
@@ -325,7 +331,7 @@ def login():
             flash('Usuario o contraseña incorrectos')
         return render_template('login.html')
     except Exception as e:
-        return f"Error en el Login: {e}"
+        return f"Error en el Login (Base de datos): {e}"
 
 @app.route('/logout')
 def logout():
@@ -352,7 +358,7 @@ def dashboard():
         agenda = Vencimiento.query.filter_by(usuario_owner=session['usuario']).order_by(Vencimiento.fecha.asc()).all()
         return render_template('dashboard.html', expedientes=expedientes_info, usuario=session['usuario'], agenda=agenda, hoy=date.today())
     except Exception as e:
-        return f"Error cargando el Dashboard: {e}. Verificá la base de datos."
+        return f"Error en el Dashboard: {e}. Esto indica que PostgreSQL no está cargando las tablas."
 
 @app.route('/agregar_vencimiento', methods=['POST'])
 @login_required
@@ -382,12 +388,11 @@ def abrir_visor(nro_expediente):
         html_caratula = render_template('caratula_modelo.html', **datos)
         ruta_caratula_pdf = os.path.join(ruta_carpeta_expte, 'caratula_generada.pdf')
         
-        # Solo intenta generar el PDF si pdfkit está configurado
         if config_pdf:
             try:
                 pdfkit.from_string(html_caratula, ruta_caratula_pdf, configuration=config_pdf)
-            except Exception as pdf_err:
-                print(f"Error generando carátula PDF: {pdf_err}")
+            except:
+                pass
 
         nombre_archivo_final = f"{session['usuario']}_{nro_expediente}.pdf".lower().replace(" ", "_")
         ruta_destino = os.path.join(OUTPUT_STATIC, nombre_archivo_final)
@@ -402,7 +407,7 @@ def abrir_visor(nro_expediente):
         merger.write(ruta_destino); merger.close()
         return render_template('index.html', archivo_pdf=nombre_archivo_final)
     except Exception as e:
-        return f"Error al generar el visor PDF: {e}. Probablemente falte el motor wkhtmltopdf en el servidor."
+        return f"Error en el Visor: {e}"
 
 @app.route('/obtener_pdf/<path:nombre_pdf>')
 @login_required
@@ -415,8 +420,8 @@ def crear_causa():
     try:
         nom = "".join(x for x in request.form.get('nombre_causa') if (x.isalnum() or x in "._- "))
         if nom: os.makedirs(os.path.join(BASE_DATOS_PDFS, session['usuario'], nom), exist_ok=True)
-    except Exception as e:
-        flash(f"Error al crear carpeta: {e}")
+    except:
+        pass
     return redirect(url_for('dashboard'))
 
 @app.route('/subir_archivo/<nro_expediente>', methods=['POST'])
@@ -426,28 +431,8 @@ def subir_archivo(nro_expediente):
         f = request.files.get('archivo_pdf')
         if f and f.filename.endswith('.pdf'):
             f.save(os.path.join(BASE_DATOS_PDFS, session['usuario'], nro_expediente, secure_filename(f.filename)))
-    except Exception as e:
-        flash(f"Error al subir: {e}")
-    return redirect(url_for('dashboard'))
-
-@app.route('/eliminar_archivo/<nro_expediente>/<nombre_archivo>')
-@login_required
-def eliminar_archivo(nro_expediente, nombre_archivo):
-    try:
-        ruta = os.path.join(BASE_DATOS_PDFS, session['usuario'], nro_expediente, nombre_archivo)
-        if os.path.exists(ruta): os.remove(ruta)
-    except Exception as e:
-        flash(f"Error al eliminar archivo: {e}")
-    return redirect(url_for('dashboard'))
-
-@app.route('/eliminar_causa/<nro_expediente>')
-@login_required
-def eliminar_causa(nro_expediente):
-    try:
-        ruta = os.path.join(BASE_DATOS_PDFS, session['usuario'], nro_expediente)
-        if os.path.exists(ruta): shutil.rmtree(ruta)
-    except Exception as e:
-        flash(f"Error al eliminar causa: {e}")
+    except:
+        pass
     return redirect(url_for('dashboard'))
 
 @app.route('/actualizar_ficha/<nro_expediente>', methods=['POST'])
@@ -459,20 +444,20 @@ def actualizar_ficha(nro_expediente):
             info.estado = request.form.get('estado'); info.monto = request.form.get('monto'); info.notas = request.form.get('notas')
             db.session.commit()
     except Exception as e:
-        flash(f"Error al actualizar base de datos: {e}")
+        flash(f"Error: {e}")
     return redirect(url_for('dashboard'))
 
-# --- CREACIÓN DE TABLAS ---
-try:
-    with app.app_context():
+# --- INICIALIZACIÓN ---
+with app.app_context():
+    try:
         db.create_all()
         if not Usuario.query.filter_by(username='nico').first():
-            nuevo_usuario = Usuario(username='nico', password='123')
-            db.session.add(nuevo_usuario)
+            nuevo = Usuario(username='nico', password='123')
+            db.session.add(nuevo)
             db.session.commit()
-            print("Base de datos lista y usuario 'nico' verificado.")
-except Exception as e:
-    print(f"Error crítico inicializando base de datos: {e}")
+            print("Tablas creadas y usuario 'nico' listo.")
+    except Exception as e:
+        print(f"ERROR AL CREAR TABLAS: {e}")
 
 if __name__ == '__main__':
     app.run(debug=True)
