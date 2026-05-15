@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>LexView Pro - Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#007bff">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+
+    <style>
+        body {
+             zoom: 1.15; /* Probá 1.1 o 1.2 según tu gusto */
+                }
+        :root { --blue: #007bff; --red: #ff4d4d; --green: #28a745; --purple: #6f42c1; --bg: #0d0d0d; --card: #1a1a1a; }
+        body { background-color: var(--bg); color: #e0e0e0; font-family: 'Segoe UI', sans-serif; margin: 0; }
+
+        nav { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #111; border-bottom: 2px solid var(--blue); position: sticky; top: 0; z-index: 1000; gap: 20px; }
+
+        /* Buscador en la Barra Superior */
+ .search-container { flex-grow: 1; max-width: 500px; position: relative; }
+ .search-container input { width: 100%; background: #000; border: 1px solid #333; color: white; padding: 8px 15px; border-radius: 20px; outline: none; font-size: 0.9rem; text-align: center; }
+ .search-container input:focus { border-color: var(--blue); box-shadow: 0 0 10px rgba(0, 123, 255, 0.3); }
+
+        /* BOTONES DE ACCIÓN */
+ .btn-sync {
+            background: var(--green);
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            transition: 0.3s;
+        }
+ .btn-sync:hover { background: #218838; transform: scale(1.05); }
+
+   /* NUEVO BOTÓN MIGRADOR */
+ .btn-migrar {
+            background: var(--purple);
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            transition: 0.3s;
+        }
+ .btn-migrar:hover { background: #5a32a3; transform: scale(1.05); }
+
+   /* BOTÓN SINCRONIZAR */
+   #btn-sincronizar {
+            background: #ffc107;
+            color: #000;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            transition: 0.3s;
+        }
+   #btn-sincronizar:hover { background: #e0a800; transform: scale(1.05); }
+
+ .btn-sync:disabled,.btn-migrar:disabled, #btn-sincronizar:disabled { background: #555; color: #aaa; cursor: not-allowed; opacity: 0.7; }
+ .rotating { animation: spin 1s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+ .main-layout { display: flex; width: 100%; min-height: 100vh; flex-direction: row; }
+ .content-area { flex-grow: 1; padding-right: 340px; transition: 0.3s; width: 100%; box-sizing: border-box; }
+
+        /* Acordeón de Juzgados */
+ .juzgado-seccion { margin: 15px 25px; background: #111; border-radius: 12px; border: 1px solid #222; overflow: hidden; }
+ .juzgado-seccion[open] { border-color: var(--blue); }
+ .juzgado-titulo { padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; list-style: none; background: #161616; border-bottom: 1px solid #222; }
+ .juzgado-titulo::-webkit-details-marker { display: none; }
+ .titulo-left { display: flex; align-items: center; gap: 15px; color: var(--blue); font-weight: bold; }
+ .badge-exptes {
+                            background: #007bff;
+                            color: white;
+                            padding: 2px 8px;
+                            border-radius: 12px;
+                            font-size: 0.7rem;
+                            font-weight: 600;
+                            margin-top: 4px;
+                            display: inline-block;
+                        }
+        /* Cards */
+ .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 15px; padding: 20px; align-items: start; }
+ .card { background: var(--card); border: 1px solid #333; border-radius: 10px; padding: 15px; cursor: pointer; transition: all 0.3s ease; position: relative; min-height: 120px; display: flex; flex-direction: column; }
+ .card.active { border-color: var(--blue); box-shadow: 0 0 20px rgba(0, 123, 255, 0.2); }
+ .expte-header { 
+    font-weight: bold; 
+    color: var(--blue); 
+    margin-bottom: 10px; 
+    display: block;
+}
+ .detalle-causa { display: none; margin-top: 15px; border-top: 1px solid #333; padding-top: 15px; }
+
+        /* Listado de archivos */
+ .file-list { margin: 10px 0; max-height: 100px; overflow-y: auto; background: #000; padding: 5px; border-radius: 5px; }
+ .file-item { display: flex; justify-content: space-between; align-items: center; padding: 4px; border-bottom: 1px solid #222; font-size: 0.75rem; }
+ .btn-delete { color: var(--red); text-decoration: none; font-weight: bold; cursor: pointer; }
+
+        /* Sidebar */
+ .sidebar { width: 330px; background: #0a0a0a; border-left: 1px solid #222; position: fixed; right: 0; top: 55px; height: calc(100vh - 55px); padding: 15px; overflow-y: auto; box-sizing: border-box; z-index: 900; }
+ .vence-card { background: #151515; border-radius: 6px; padding: 8px; margin-bottom: 8px; border-left: 4px solid var(--red); position: relative; }
+
+        /* Calendario */
+ .cal-box { background: #1a1a1a; border-radius: 12px; padding: 10px; border: 1px solid #333; margin-bottom: 10px; max-width: 300px; margin-left: auto; margin-right: auto; }
+ .cal-table { width: 100%; text-align: center; border-collapse: separate; border-spacing: 4px; table-layout: fixed; }
+ .cal-table th { font-size: 0.7rem; color: #666; padding-bottom: 5px; }
+ .cal-table td {
+            padding: 0;
+            cursor: pointer;
+            aspect-ratio: 1 / 1;
+            height: 35px;
+            vertical-align: middle;
+            font-size: 0.8rem;
+            color: #aaa;
+            position: relative;
+            transition: 0.2s;
+            border-radius: 5px;
+            background: transparent;
+        }
+ .cal-table td:hover:not(:empty) { background: #333; }
+
+    /* Globitos de fondo - verde manda sobre rojo */
+ .cal-table td.dia-calendario.tiene-agenda {
+        background: var(--green)!important;
+        color: white!important;
+        font-weight: 600;
+    }
+ .cal-table td.dia-calendario.tiene-vencimiento {
+        background: var(--red)!important;
+        color: white!important;
+        font-weight: 600;
+    }
+    /* Si tiene ambos, verde gana */
+ .cal-table td.dia-calendario.tiene-agenda.tiene-vencimiento {
+        background: var(--green)!important;
+        color: white!important;
+    }
+
+ .dia-calendario.hoy {
+        outline: 2px solid var(--blue);
+        outline-offset: -2px;
+    }
+ .dia-calendario.seleccionado {
+        box-shadow: inset 0 0 0 2px white;
+    }
+ .dia-calendario.seleccionado.tiene-agenda,
+ .dia-calendario.seleccionado.tiene-vencimiento {
+        box-shadow: inset 0 0 0 2px white;
+    }
+
+ .btn-azul,.btn-verde { background: var(--blue); color: white; border: none; padding: 10px; border-radius: 6px; width: 100%; font-weight: bold; cursor: pointer; text-decoration: none; display: block; text-align: center; margin-top: 5px; }
+ .btn-verde { background: var(--green); }
+ .btn-verde:hover { background: #218838; }
+        textarea, input { width: 100%; background: #111; color: white; border: 1px solid #333; padding: 10px; border-radius: 6px; box-sizing: border-box; margin-bottom: 10px; }
+
+        /* ANIMACIÓN PARA RESULTADOS DE BÚSQUEDA */
+ .expte-card[style*="display:"] {
+            animation: aparecer 0.3s ease;
+        }
+        @keyframes aparecer {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* MODO BÚSQUEDA: cards compactas y sin estirarse */
+ .grid-container.modo-busqueda {
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            align-items: start;
+        }
+ .grid-container.modo-busqueda.expte-card {
+            min-height: auto;
+        }
+ .expte-card.resultado-busqueda {
+            border-color: var(--green);
+            box-shadow: 0 0 15px rgba(40, 167, 69, 0.3);
+        }
+
+        @media (max-width: 1024px) {
+      .main-layout { flex-direction: column; }
+      .content-area { padding-right: 0!important; width: 100%; }
+      .sidebar { width: 100%!important; position: relative!important; top: 0!important; height: auto!important; border-left: none; border-top: 2px solid #222; }
+            nav { flex-wrap: wrap; }
+      .search-container { order: 3; max-width: 100%; width: 100%; margin-top: 10px; }
+      .sync-text { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <nav>
+        <div style="color: var(--blue); font-weight: bold; font-size: 1.3rem; min-width: 150px;">LEXVIEW PRO</div>
+
+        <div class="search-container">
+            <input type="text" id="globalSearch" placeholder="🔍 Buscar expediente..." onkeyup="filtrarExpedientes()">
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <button id="btn-clasificar" onclick="iniciarClasificador()">CLASIFICAR</button>
+                --<span id="migrarIcon">📂</span> <span class="sync-text">CLASIFICAR</span>--
+            </button>
+
+            <button id="syncBtn" class="btn-sync" onclick="sincronizarBot()">
+                <span id="syncIcon">🔄</span> <span class="sync-text">ACTUALIZAR</span>
+            </button>
+
+            <button id="btn-sincronizar">
+                <i class="fas fa-sync-alt"></i> <span class="sync-text">SINCRONIZAR</span>
+            </button>
+
+            <div style="font-size: 0.85rem; min-width: 150px; text-align: right;">Dr/a. <strong>{{ usuario }}</strong> | <a href="/logout" style="color: var(--red); text-decoration: none;">CERRAR</a></div>
+        </div>
+    </nav><nav>
+    <div style="color: var(--blue); font-weight: bold; font-size: 1.3rem; min-width: 150px;">LEXVIEW PRO</div>
+
+    <div class="search-container">
+        <input type="text" id="globalSearch" placeholder="🔍 Buscar expediente..." onkeyup="filtrarExpedientes()">
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px;">
+        <button id="btn-clasificar" onclick="iniciarClasificador()">
+            <span id="migrarIcon">📂</span> <span class="sync-text">CLASIFICAR</span>
+        </button>
+
+        <button id="syncBtn" class="btn-sync" onclick="sincronizarBot()">
+            <span id="syncIcon">🔄</span> <span class="sync-text">ACTUALIZAR</span>
+        </button>
+
+        <button id="btn-sincronizar" onclick="iniciarSincronizador()">
+            <i class="fas fa-download"></i> <span class="sync-text">SINCRONIZAR</span>
+        </button>
+
+        <div style="font-size: 0.85rem; min-width: 150px; text-align: right;">
+            Dr/a. <strong>{{ usuario }}</strong> | 
+            <a href="/logout" style="color: var(--red); text-decoration: none;">CERRAR</a>
+        </div>
+    </div>
+</nav>
+
+   <div class="main-layout">
+    <div class="content-area">
+        {% for grupo in estructura %}
+        <details class="juzgado-seccion" id="sec-{{ loop.index }}" open>
+            <summary class="juzgado-titulo">
+                <div class="titulo-left">
+                    <span style="font-size: 1.5rem;">🏛️</span>
+                    <div>
+                       <div>
+                            <div style="font-size: 1.1rem;">{{ grupo.nombre_juzgado|upper }}</div>
+                                                    {% if grupo.nombre_juzgado == 'IMPORTADOS' %}
+                            <span class="badge-exptes">{{ total_importados }} EXPEDIENTES</span>
+                        {% else %}
+                            <span class="badge-exptes">{{ grupo.total_exptes }} EXPEDIENTES</span>
+                        {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </summary>
+
+            <div class="grid-container">
+                <div class="card card-nuevo" style="border: 1px dashed #444; cursor: default; min-height: auto;" onclick="event.stopPropagation()">
+                <details>
+                    <summary style="color: #888; cursor: pointer; font-size: 0.85rem; font-weight: 600; list-style: none; text-align: center; padding: 10px;">
+                        + NUEVO EXPEDIENTE
+                    </summary>
+                    <form action="/crear_causa" method="POST" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333;">
+                        <input type="hidden" name="juzgado_nombre" value="{{ grupo.nombre_juzgado }}">
+                        <input type="text" name="nombre_causa" placeholder="Ej: 255658/23" required style="margin-bottom: 8px;">
+                        <button type="submit" class="btn-azul" style="margin-top: 0;">CREAR CARPETA</button>
+                    </form>
+                </details>
+            </div>
+
+                {% for sec in grupo.secretarias %}
+                    <div class="titulo-secretaria" style="width: 100%; grid-column: 1 / -1; margin: 15px 0 5px 0;">
+                        <h4 style="color: #888; font-size: 0.9rem; border-bottom: 1px solid #333; padding-bottom: 5px; margin: 0;">
+                            ⚖️ {{ sec.nombre | upper }}
+                        </h4>
+                    </div>
+
+                    {% for expte in sec.expedientes %}
+                <div class="card expte-card" data-nombre="{{ expte.numero }}" data-demandado="{{ expte.demandado|lower }}" onclick="toggleDetalle(event, this)">
+                    <div class="expte-header">
+                        <div style="font-size: 0.85rem; font-family: monospace; color: var(--blue);">📁 {{ expte.numero }}</div>
+                        <div style="font-size: 0.8rem; margin-top: 2px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: #fff;">
+                            {{ expte.demandado or 'SIN CARATULAR' }}
+                        </div>
+                        <div style="color: #666; font-size: 0.65rem; margin-top: 3px;">
+                            {% if expte.ultima_fecha %}
+                            Últ. mov: {{ expte.ultima_fecha }} | {{ expte.cantidad_archivos }} PDFs
+                            {% else %}
+                            Sin movimientos | {{ expte.cantidad_archivos }} PDFs
+                            {% endif %}
+                            {% if expte.estado and expte.estado!= 'EN_ESPERA' and expte.estado!= '__EN_ESPERA__' %}
+                            <span style="color: var(--blue); font-size: 0.6rem; margin-left: 6px; font-weight: 600;">{{ expte.estado }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="detalle-causa" onclick="event.stopPropagation()">
+                        <form action="/actualizar_ficha/{{ grupo.nombre_juzgado }}/{{ sec.nombre }}/{{ expte.numero }}" method="POST">
+                            <div style="background:#000; padding:10px; border-radius:8px; border-left:3px solid var(--blue); margin-bottom:10px;">
+                                <div style="font-size:0.6rem; color:var(--blue); font-weight:bold;">ESTADO PROCESAL</div>
+                                <input type="text" name="estado" value="{{ expte.estado }}" style="color:#ffc107; background:transparent; border:none; outline:none;">
+                            </div>
+                            <textarea name="notas" rows="3" placeholder="Notas de estrategia...">{{ expte.notas }}</textarea>
+                            <button type="submit" style="background:#222; color:#aaa; border:1px solid #444; width:100%; padding:5px; border-radius:5px; font-size:0.7rem; cursor:pointer;">💾 GUARDAR CAMBIOS</button>
+                        </form>
+
+                        <a href="/visor/{{ grupo.nombre_juzgado }}/{{ sec.nombre }}/{{ expte.numero }}" class="btn-azul">ABRIR LIBRO DIGITAL</a>
+
+                        <div style="font-size:0.65rem; color:#888; font-weight:bold; margin: 10px 0 5px 0;">ARCHIVOS CARGADOS:</div>
+                        <div class="file-list">
+                            {% for item in expte.archivos %}
+                            <div class="file-item">
+                                <span style="color:#00ff88; font-size:0.75rem; font-family:monospace;">{{ item.fecha }}</span>
+                                <span style="color:#aaa; font-size:0.75rem; margin-left:8px; overflow:hidden; text-overflow:ellipsis;">{{ item.archivo }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+
+                        <div style="border:1px solid var(--red); padding:10px; border-radius:8px; margin-top:10px;">
+                            <p style="font-size:0.65rem; color:var(--red); font-weight:bold; margin:0 0 5px 0;">+ AGENDAR VENCIMIENTO</p>
+                            <form action="/agregar_vencimiento" method="POST" style="display:flex; gap:5px;">
+                                <input type="hidden" name="causa_nombre" value="{{ expte.numero }}">
+                                <input type="hidden" name="secretaria" value="{{ sec.nombre }}">
+                                <input type="hidden" name="juzgado" value="{{ grupo.nombre_juzgado }}">
+                                <input type="date" name="fecha" required style="padding:4px; font-size:0.7rem; margin:0;">
+                                <input type="text" name="titulo" placeholder="¿Qué vence?" required style="padding:4px; font-size:0.7rem; margin:0;">
+                                <button type="submit" style="background:var(--red); color:white; border:none; padding:0 8px; border-radius:3px; cursor:pointer;">OK</button>
+                            </form>
+                        </div>
+
+                        <form action="/subir_archivo/{{ grupo.nombre_juzgado }}/{{ sec.nombre }}/{{ expte.numero }}" method="POST" enctype="multipart/form-data" style="margin-top: 10px;">
+                            <input type="file" name="archivo_pdf" accept=".pdf" required style="font-size:0.6rem;">
+                            <button type="submit" style="background:transparent; color:var(--blue); border:1px solid var(--blue); width:100%; padding:5px; font-size:0.7rem; border-radius:5px; cursor:pointer;">+ SUBIR PDF</button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+                {% endfor %}
+
+            </div>
+        </details>
+        {% endfor %}
+    </div>
+
+        <div class="sidebar">
+            <div style="margin-bottom:20px; background:#111; padding:15px; border:1px solid var(--blue); border-radius:10px;">
+                <details>
+                    <summary style="color: var(--blue); cursor: pointer; font-size: 0.9rem; font-weight: bold;">
+                        🚀 IMPORTAR CARPETAS
+                    </summary>
+                    <div style="margin-top: 10px;">
+                        <p style="font-size: 0.65rem; color: #888;">Elegí la carpeta de tus expedientes viejos:</p>
+
+                        <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+                            <input type="text" id="rutaImportar" placeholder="C:\Juicios\Viejos" style="font-size: 0.75rem; margin-bottom: 0; flex-grow: 1;">
+                            <button onclick="abrirSelectorCarpetas()" style="background: #333; color: white; border: 1px solid #444; border-radius: 6px; padding: 0 10px; cursor: pointer;" title="Examinar">
+                                📂
+                            </button>
+                        </div>
+
+                        <button onclick="iniciarImportacion()" class="btn-azul" id="btnImportar">INICIAR MIGRACIÓN</button>
+                    </div>
+                </details>
+            </div>
+            <div style="color: var(--red); font-weight: bold; font-size: 0.8rem; margin-bottom: 15px;">🔴 VENCIMIENTOS</div>
+            <div style="max-height: 140px; overflow-y: auto; margin-bottom: 20px;">
+                {% for p in agenda %}
+                <div class="vence-card">
+                    <div style="font-size:0.6rem; color:#888;">{{ p.fecha.strftime('%d/%m/%Y') }}</div>
+                    <div style="font-size:0.75rem; font-weight:bold;">{{ p.titulo }}</div>
+                    <div style="font-size:0.6rem; color:var(--blue);">Expte: {{ p.causa_nombre }}</div>
+                    <a href="/eliminar_vencimiento/{{ p.id }}" style="position: absolute; top: 5px; right: 5px; color: var(--red); text-decoration: none;" onclick="return confirm('¿Borrar?')">✖</a>
+                </div>
+                {% endfor %}
+            </div>
+            <div style="color: var(--green); font-weight: bold; font-size: 0.8rem; margin-bottom: 10px;">🟢 AGENDA</div>
+            <div class="cal-box" id="calendario-container">
+                </div>
+
+            <div id="evento-detalle" style="display:none; margin-top: 10px; padding: 10px; background: #151515; border-radius: 6px; border-left: 3px solid var(--green);">
+                <div style="font-size: 0.75rem; color: #666;" id="evento-fecha-seleccionada"></div>
+                <div style="font-size: 0.85rem; margin-top: 4px; color: white;" id="evento-descripcion"></div>
+            </div>
+
+            <div style="margin-top:15px; background:#000; padding:10px; border:1px solid var(--green); border-radius:10px;">
+                <details>
+                    <summary style="color: var(--green); cursor: pointer; font-size: 0.9rem; font-weight: 600;">+ AGENDAR EVENTO</summary>
+                    <form action="/agregar_evento" method="POST" style="margin-top: 10px;">
+                        <input type="date" name="fecha" id="input-fecha-evento" required>
+                        <input type="text" name="evento" placeholder="Audiencia Civil 6 a las 9" required>
+                        <button type="submit" class="btn-verde">GUARDAR EN AGENDA</button>
+                    </form>
+                </details>
+            </div>
+        </div>
+    </div>
+
+   <div id="bot-monitor" style="display:none; position:fixed; top:55px; left:0; right:0; background:linear-gradient(90deg, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%); border-bottom:2px solid #00ff88; padding:12px 25px; z-index:9998; box-shadow: 0 4px 20px #00ff8844; font-family:'Segoe UI', 'Roboto', sans-serif;">
+    <div style="max-width: 1400px; margin: 0 auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <h4 id="bot-title" style="color:#00ff88; margin:0; font-size:0.95rem; font-weight:600; letter-spacing:0.5px;">🚀 LEXVIEW BOT EN VIVO</h4>
+            <span id="bot-count" style="color:#00ff88; font-size:1.1rem; font-weight:bold; font-family:monospace;">0/0</span>
+        </div>
+
+        <div style="background:#333; height:8px; border-radius:4px; overflow:hidden; margin-bottom:8px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);">
+            <div id="bot-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #00ff88, #00ffaa); transition:width 0.4s ease; box-shadow: 0 10px #00ff88;"></div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; margin-bottom:8px;">
+            <div id="bot-msg" style="color:#bbb; flex-grow:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Esperando señal...</div>
+            <span id="bot-perc" style="color:#888; margin-left:20px; min-width:45px; text-align:right; font-family:monospace; font-weight:600;">0%</span>
+        </div>
+
+        <div id="bot-log" style="background:#0a0a0a; border:1px solid #2a2a2a; border-radius:4px; padding:6px 10px; font-size:0.75rem; max-height:60px; overflow-y:auto; color:#888; line-height:1.4;"></div>
+
+        <div id="bot-summary" style="display:none; margin-top:10px; padding:10px; background:linear-gradient(135deg, #00ff8822, #00ff8811); border:1px solid #00ff88; border-radius:6px; font-size:0.85rem;">
+            <div style="font-weight:bold; margin-bottom:5px; color:#00ff88;">📊 REPORTE DE MISIÓN</div>
+            <div id="bot-summary-content" style="color:#aaa;"></div>
+        </div>
+    </div>
+</div>
+
+   <script>
+    const notasJson = JSON.parse('{{ notas_json | tojson | safe }}');
+    const hoyStr = "{{ hoy.strftime('%Y-%m-%d') }}";
+    let fechaVisual = new Date();
+    var socket = io();
+
+    // SOCKETS Y BOT MONITOR
+    socket.on('connect', function() { console.log('✅ Socket conectado'); });
+
+    socket.on('bot_status', function(data) {
+        $('#bot-monitor').fadeIn();
+        $('#bot-msg').text(data.msg);
+        $('#bot-bar').css('width', data.progreso + '%');
+        $('#bot-perc').text(data.progreso + '%');
+        $('#bot-count').text(data.contador);
+        if(data.current_exp) { $('#bot-msg').html(`Procesando: <b>${data.current_exp}</b>`); }
+    });
+
+    socket.on('bot_log', function(data) { $('#bot-log').html(data.log.join('<br>')); });
+
+    socket.on('bot_finished', function(data) {
+        $('#bot-msg').html(`<b style="color:#00ff00;">✔ PROCESO COMPLETADO</b>`);
+        $('#bot-summary').show();
+        $('#bot-summary-content').html(`Auditados: ${data.exptes} | Nuevos: ${data.pdfs} | Tiempo: ${data.tiempo}`);
+        $('#bot-bar').css('width', '100%');
+        // Rehabilitar botones
+        $('#btn-sincronizar').prop('disabled', false).html('<i class="fas fa-sync-alt"></i> SINCRONIZAR EXPEDIENTE');
+        $('#syncBtn').prop('disabled', false);
+        $('#migrarBtn').prop('disabled', false);
+        $('.rotating').removeClass('rotating');
+        setTimeout(() => { location.reload(); }, 4000);
+    });
+
+    socket.on('bot_error', function(data) {
+        $('#bot-msg').html(`<b style="color:#ff4444;">❌ ERROR:</b> ${data.msg}`);
+        // Rehabilitar botones
+        $('#btn-sincronizar').prop('disabled', false).html('<i class="fas fa-sync-alt"></i> SINCRONIZAR EXPEDIENTE');
+        $('#syncBtn').prop('disabled', false);
+        $('#migrarBtn').prop('disabled', false);
+        $('.rotating').removeClass('rotating');
+    });
+
+    // FUNCIONES DE DISPARO DE BOTS
+    function sincronizarBot() {
+        $('#bot-title').text('🚀 LEXVIEW BOT ACTUALIZADOR');
+        const icon = document.getElementById('syncIcon');
+        document.getElementById('syncBtn').disabled = true;
+        icon.classList.add('rotating');
+        fetch('/run_bot_update', { method: 'POST' });
+    }
+
+    // BOTÓN SINCRONIZAR EXPEDIENTE
+    document.getElementById('btn-sincronizar').addEventListener('click', function() {
+        if (!confirm('Esto descargará todas las actuaciones nuevas desde la última fecha guardada. Puede tardar varios minutos. ¿Continuar?')) {
+            return;
+        }
+
+        $('#bot-title').text('🚀 LEXVIEW BOT SINCRONIZADOR');
+        const btn = document.getElementById('btn-sincronizar');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-sync-alt rotating"></i> SINCRONIZANDO...';
+
+        socket.emit('start_bot', {
+            usuario_sistema: "{{ usuario }}",
+            usuario_forum: "{{ credenciales.usuario if credenciales else '' }}",
+            clave_forum: "{{ credenciales.clave if credenciales else '' }}",
+            matricula: "{{ credenciales.matricula if credenciales else '' }}",
+            modo: "SINCRONIZAR"
+        });
+    });
+
+
+    function iniciarClasificador() {
+    const btn = document.getElementById('btn-clasificar');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> CLASIFICANDO...';
+    
+    fetch('/run_clasificador', { method: 'POST' })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Clasificador:', data.message);
+        if (data.status === 'error') {
+            alert(data.message);
+            btn.disabled = false;
+            btn.innerHTML = '<span id="migrarIcon">📂</span> <span class="sync-text">CLASIFICAR</span>';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        btn.disabled = false;
+        btn.innerHTML = '<span id="migrarIcon">📂</span> <span class="sync-text">CLASIFICAR</span>';
+    });
+}
+
+function iniciarSincronizador() {
+    const btn = document.getElementById('btn-sincronizar');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> SINCRONIZANDO...';
+    
+    fetch('/run_sincronizador', { method: 'POST' })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Sincronizador:', data.message);
+    });
+}
+
+// Rehabilitar botones cuando termina
+socket.on('bot_finished', function(data) {
+    if (data.clasificados !== undefined) {
+        const btn = document.getElementById('btn-clasificar');
+        btn.disabled = false;
+        btn.innerHTML = '<span id="migrarIcon">📂</span> <span class="sync-text">CLASIFICAR</span>';
+    }
+    if (data.pdfs !== undefined) {
+        const btn = document.getElementById('btn-sincronizar');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-download"></i> <span class="sync-text">SINCRONIZAR</span>';
+    }
+});
+
+    function dispararMigrador() {
+        if(!confirm("¿Clasificar automáticamente los expedientes en la carpeta IMPORTADOS?")) return;
+        $('#bot-title').text('📂 CLASIFICADOR INTELIGENTE');
+        const icon = document.getElementById('migrarIcon');
+        document.getElementById('migrarBtn').disabled = true;
+        icon.classList.add('rotating');
+        fetch('/run_migrador', { method: 'POST' });
+    }
+
+    function iniciarImportacion() {
+        const ruta = document.getElementById('rutaImportar').value.trim();
+        if (!ruta) return alert("Ingresá la ruta de la carpeta");
+
+        const btn = document.getElementById('btnImportar');
+        btn.disabled = true;
+        btn.innerText = "ESCANEANDO...";
+
+        fetch('/importar_legado', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `ruta_carpeta_vieja=${encodeURIComponent(ruta)}`
+        })
+      .then(res => res.json())
+      .then(data => {
+            if(data.success) { alert(data.message); location.reload(); }
+            else { alert(data.message); btn.disabled = false; btn.innerText = "INICIAR MIGRACIÓN"; }
+        });
+    }
+
+   function filtrarExpedientes() {
+    let val = document.getElementById('globalSearch').value.toLowerCase().trim();
+    let juzgados = document.querySelectorAll('.juzgado-seccion');
+    let totalEncontrados = 0;
+
+    if (val === "") {
+        document.querySelectorAll('.expte-card').forEach(card => {
+            card.style.display = "";
+            card.classList.remove('resultado-busqueda');
+        });
+        document.querySelectorAll('.juzgado-seccion').forEach(j => j.style.display = "");
+        document.querySelectorAll('.card-nuevo').forEach(c => c.style.display = "");
+        document.querySelectorAll('.titulo-secretaria').forEach(t => t.style.display = "");
+        document.querySelectorAll('details').forEach(d => d.open = true);
+        document.querySelectorAll('.grid-container').forEach(g => g.classList.remove('modo-busqueda'));
+        document.getElementById('sin-resultados')?.remove();
+        return;
+    }
+
+    juzgados.forEach(juzgado => {
+        let cardsExpte = juzgado.querySelectorAll('.expte-card');
+        let encontradosEnJuzgado = 0;
+
+        cardsExpte.forEach(card => {
+           let numero = card.getAttribute('data-nombre').toLowerCase();
+            let demandado = card.getAttribute('data-demandado') || '';
+            let match = numero.includes(val) || demandado.includes(val);
+            card.style.display = match? "" : "none";
+            if (match) {
+                encontradosEnJuzgado++;
+                totalEncontrados++;
+                card.classList.add('resultado-busqueda');
+                card.closest('details').open = true;
+                card.querySelector('.detalle-causa').style.display = 'none';
+                card.classList.remove('active');
+            } else {
+                card.classList.remove('resultado-busqueda');
+            }
+        });
+
+        juzgado.querySelectorAll('.titulo-secretaria').forEach(titulo => {
+            let siguiente = titulo.nextElementSibling;
+            let tieneVisible = false;
+            while(siguiente && siguiente.classList.contains('expte-card')) {
+                if(siguiente.style.display!== 'none') { tieneVisible = true; break; }
+                siguiente = siguiente.nextElementSibling;
+            }
+            titulo.style.display = tieneVisible? "" : "none";
+        });
+
+        let cardNuevo = juzgado.querySelector('.card-nuevo');
+        if (cardNuevo) cardNuevo.style.display = "none";
+        juzgado.style.display = encontradosEnJuzgado > 0? "" : "none";
+        if (encontradosEnJuzgado > 0) {
+            juzgado.querySelector('.grid-container').classList.add('modo-busqueda');
+        }
+    });
+
+    let msgViejo = document.getElementById('sin-resultados');
+    if (totalEncontrados === 0 &&!msgViejo) {
+        let msg = document.createElement('div');
+        msg.id = 'sin-resultados';
+        msg.style.cssText = 'text-align:center; padding:40px; color:#666; font-size:0.9rem;';
+        msg.innerHTML = `No se encontró ningún expediente con "<b>${val}</b>"`;
+        document.querySelector('.content-area').appendChild(msg);
+    } else if (totalEncontrados > 0 && msgViejo) { msgViejo.remove(); }
+}
+
+    function toggleDetalle(event, card) {
+        event.stopPropagation();
+        const detalle = card.querySelector('.detalle-causa');
+        const estaAbierta = detalle.style.display === 'block';
+        document.querySelectorAll('.detalle-causa').forEach(d => d.style.display = 'none');
+        document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+                if (!estaAbierta) {
+            detalle.style.display = 'block';
+            card.classList.add('active');
+        }
+    }
+
+    function cambiarMes(delta) { fechaVisual.setMonth(fechaVisual.getMonth() + delta); renderCalendario(); }
+
+   function renderCalendario() {
+    try {
+        const container = document.getElementById('calendario-container');
+        const mes = fechaVisual.getMonth();
+        const año = fechaVisual.getFullYear();
+        const nombresMeses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+        const primerDia = new Date(año, mes, 1).getDay();
+        const diasEnMes = new Date(año, mes + 1, 0).getDate();
+        const startCol = primerDia === 0? 6 : primerDia - 1;
+
+        let html = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <button onclick="cambiarMes(-1)" style="background: #333; color: white; border: none; padding: 2px 10px; border-radius: 5px; cursor: pointer;">‹</button>
+                <div style="font-weight:bold; font-size:0.8rem;">${nombresMeses[mes]} ${año}</div>
+                <button onclick="cambiarMes(1)" style="background: #333; color: white; border: none; padding: 2px 10px; border-radius: 5px; cursor: pointer;">›</button>
+            </div>
+            <table class="cal-table">
+                <thead><tr><th>LU</th><th>MA</th><th>MI</th><th>JU</th><th>VI</th><th>SA</th><th>DO</th></tr></thead>
+                <tbody>
+        `;
+
+        let diaActual = 1;
+        for (let i = 0; i < 6; i++) {
+            html += '<tr>';
+            for (let j = 0; j < 7; j++) {
+                if ((i === 0 && j < startCol) || diaActual > diasEnMes) { html += '<td></td>'; }
+                else {
+                    const isoFecha = `${año}-${String(mes + 1).padStart(2, '0')}-${String(diaActual).padStart(2, '0')}`;
+                    let clases = 'dia-calendario';
+                    if (isoFecha === hoyStr) clases += ' hoy';
+                    if (notasJson[isoFecha]) {
+                        if (notasJson[isoFecha].some(n => n.tipo === 'agenda')) clases += ' tiene-agenda';
+                        if (notasJson[isoFecha].some(n => n.tipo === 'vencimiento')) clases += ' tiene-vencimiento';
+                    }
+                    html += `<td class="${clases}" onclick="seleccionarDia('${isoFecha}')" data-fecha="${isoFecha}">${diaActual}</td>`;
+                    diaActual++;
+                }
+            }
+            html += '</tr>';
+            if (diaActual > diasEnMes) break;
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } catch(e) { console.error(e); }
+}
+
+        function iniciarClasificador() {
+            // Deshabilitar botón
+            document.getElementById('btn-clasificar').disabled = true;
+            document.getElementById('btn-clasificar').innerText = 'CLASIFICANDO...';
+            
+            // Cambiar título de la barra
+            document.querySelector('.clasificador-title').innerText = '📁 CLASIFICADOR INTELIGENTE';
+            document.querySelector('.clasificador-subtitle').innerText = 'Clasificando expedientes...';
+            
+            fetch('/run_clasificador', { 
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Clasificador:', data.message);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('btn-clasificar').disabled = false;
+                document.getElementById('btn-clasificar').innerText = 'CLASIFICAR';
+            });
+        }
+
+        // Escuchar cuando termina
+        socket.on('bot_finished', function(data) {
+            if (data.clasificados !== undefined) {
+                document.getElementById('btn-clasificar').disabled = false;
+                document.getElementById('btn-clasificar').innerText = 'CLASIFICAR';
+                document.querySelector('.clasificador-subtitle').innerText = 
+                    `✅ ${data.clasificados} clasificados, ${data.errores} errores`;
+            }
+        });
+
+
+
+  function seleccionarDia(fecha) {
+    document.querySelectorAll('.dia-calendario').forEach(d => d.classList.remove('seleccionado'));
+    document.querySelector(`[data-fecha="${fecha}"]`)?.classList.add('seleccionado');
+    document.getElementById('input-fecha-evento').value = fecha;
+    const detalle = document.getElementById('evento-detalle');
+    const notas = notasJson[fecha];
+    if (notas && notas.length > 0) {
+        document.getElementById('evento-fecha-seleccionada').innerText = new Date(fecha + 'T00:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+        document.getElementById('evento-descripcion').innerHTML = notas.map(n => `<div style="margin-bottom: 6px; padding-left: 8px; border-left: 2px solid ${n.tipo==='vencimiento'?'var(--red)':'var(--green)'};">${n.texto}</div>`).join('');
+        detalle.style.display = 'block';
+    } else { detalle.style.display = 'none'; }
+}
+    window.onload = function() { renderCalendario(); };
+
+    function abrirSelectorCarpetas() {
+    // Llamamos a Python para que abra la ventana de Windows
+    fetch('/seleccionar_carpeta', { method: 'POST' })
+   .then(res => res.json())
+   .then(data => {
+        if (data.success) {
+            document.getElementById('rutaImportar').value = data.ruta;
+        }
+    })
+   .catch(err => console.error("Error al abrir el selector:", err));
+}
+</script>
+</body>
+</html>

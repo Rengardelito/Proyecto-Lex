@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>LexView Pro - Libro Digital</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
+    <script src="https://rawcdn.githack.com/blasten/turn.js/master/lib/turn.min.js"></script>
+    <style>
+        body { background: #1c1c1c; margin: 0; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
+       .toolbar { width: 100%; background: #2d2d2d; height: 50px; display: flex; align-items: center; padding: 0 20px; border-bottom: 1px solid #444; justify-content: space-between; position: fixed; top: 0; z-index: 10; }
+       .toolbar-center { display: flex; align-items: center; gap: 15px; }
+        #loading { position: fixed; top:0; left:0; width:100%; height:100%; background: #1c1c1c; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 99; }
+       .spinner { border: 4px solid #333; border-top: 4px solid #007bff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #flipbook-container { margin-top: 80px; cursor: grab; }
+        #flipbook-container:active { cursor: grabbing; }
+        canvas { background: white; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+       .btn-volver { background: #c0392b; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 14px; }
+       .nav-controls { display: flex; align-items: center; gap: 10px; }
+       .nav-controls input[type="number"] { width: 50px; padding: 4px; background: #444; border: 1px solid #666; color: white; border-radius: 3px; text-align: center; }
+       .nav-controls input[type="text"] { width: 120px; padding: 4px; background: #444; border: 1px solid #666; color: white; border-radius: 3px; }
+       .nav-controls button { background: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; }
+       .nav-controls button:hover { background: #0056b3; }
+        #page-slider { width: 200px; }
+       .highlight { background: yellow; color: black; }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <p id="status">Iniciando LexView Engine...</p>
+    </div>
+
+    <div class="toolbar">
+        <div>
+            <a href="/" class="btn-volver">✖ Cerrar</a>
+            <span style="margin-left: 15px;"><strong>LexView Pro</strong> | Expte: {{ expte }}</span>
+        </div>
+
+        <div class="toolbar-center">
+            <div class="nav-controls">
+                <button id="prev-page">◀</button>
+                <input type="number" id="page-input" min="1" value="1">
+                <span>/ <span id="total-pages">0</span></span>
+                <button id="next-page">▶</button>
+            </div>
+            <input type="range" id="page-slider" min="1" value="1">
+            <div class="nav-controls">
+                <input type="text" id="search-input" placeholder="Buscar texto...">
+                <button id="search-btn">🔍</button>
+                <span id="search-results"></span>
+            </div>
+        </div>
+
+        <span>Foja: <span id="current-page">1</span></span>
+    </div>
+
+    <div id="flipbook-container">
+        <div id="flipbook"></div>
+    </div>
+
+    <script>
+        const archivosRaw = '{{ archivos | tojson | safe }}';
+        const archivosPDF = JSON.parse(archivosRaw);
+        const usuarioApp = "{{ usuario }}";
+        const juzgadoApp = "{{ juzgado }}";
+        const secretariaApp = "{{ secretaria }}";
+        const expteApp = "{{ expte }}";
+
+        let pdfDocs = []; // Guardamos todos los PDFs cargados
+        let allPages = []; // Array de {pdfIndex, pageIndex, canvas}
+        let textContents = []; // Para búsqueda
+        let currentSearchResults = [];
+        let currentSearchIndex = -1;
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
+
+        async function initFlipbook() {
+            try {
+                const book = $('#flipbook');
+
+                // 1. CARGAR TODOS LOS PDFs Y EXTRAER PÁGINAS
+                for (let i = 0; i < archivosPDF.length; i++) {
+                    const nombre = archivosPDF[i];
+                    const url = `/pdf_individual/${usuarioApp}/${juzgadoApp}/${secretariaApp}/${expteApp}/${nombre}?t=${Date.now()}`;
+
+                    $('#status').text(`Cargando ${i+1} de ${archivosPDF.length}: ${nombre}...`);
+
+                    try {
+                        const loadingTask = pdfjsLib.getDocument(url);
+                        const pdf = await loadingTask.promise;
+                        pdfDocs.push(pdf);
+
+                        for (let j = 1; j <= pdf.numPages; j++) {
+                            $('#status').text(`Renderizando ${nombre} - página ${j}/${pdf.numPages}...`);
+                            const page = await pdf.getPage(j);
+                            const viewport = page.getViewport({ scale: 1.5 });
+                            const canvas = document.createElement('canvas');
+                            const context = canvas.getContext('2d');
+                            canvas.height = viewport.height;
+                            canvas.width = viewport.width;
+                            await page.render({ canvasContext: context, viewport: viewport }).promise;
+
+                            // Extraer texto para búsqueda
+                            const textContent = await page.getTextContent();
+                            const pageText = textContent.items.map(item => item.str).join(' ');
+
+                            allPages.push({
+                                pdfIndex: i,
+                                pageIndex: j,
+                                canvas: canvas,
+                                text: pageText.toLowerCase()
+                            });
+
+                            const pageDiv = $('<div/>').append(canvas);
+                            book.append(pageDiv);
+                        }
+                    } catch (e) {
+                        console.error(`Error cargando ${nombre}:`, e);
+                        continue;
+                    }
+                }
+
+                const totalPaginas = allPages.length;
+                $('#total-pages').text(totalPaginas);
+                $('#page-slider').attr('max', totalPaginas);
+                $('#page-input').attr('max', totalPaginas);
+                $('#loading').fadeOut();
+
+                if (totalPaginas === 0) throw new Error("No se pudo renderizar ninguna página");
+
+                // 2. INICIAR TURN.JS CON TODAS LAS FUNCIONALIDADES
+                book.turn({
+                    width: 1000,
+                    height: 700,
+                    autoCenter: true,
+                    gradients: true,
+                    acceleration: true,
+                    elevation: 50,
+                    pages: totalPaginas,
+                    when: {
+                        turned: function(e, page) {
+                            $('#current-page').text(page);
+                            $('#page-input').val(page);
+                            $('#page-slider').val(page);
+                        }
+                    }
+                });
+
+                // 3. CONTROLES DE NAVEGACIÓN
+                $('#prev-page').click(() => book.turn('previous'));
+                $('#next-page').click(() => book.turn('next'));
+
+                $('#page-input').on('change', function() {
+                    const page = parseInt($(this).val());
+                    if (page >= 1 && page <= totalPaginas) {
+                        book.turn('page', page);
+                    }
+                });
+
+                $('#page-slider').on('input', function() {
+                    const page = parseInt($(this).val());
+                    book.turn('page', page);
+                });
+
+                // Flechas del teclado
+                $(window).bind('keydown', function(e){
+                    if (e.target.tagName === 'INPUT') return; // No interceptar si está escribiendo
+                    if (e.keyCode == 37) book.turn('previous');
+                    else if (e.keyCode == 39) book.turn('next');
+                });
+
+                // 4. BÚSQUEDA DE TEXTO
+                $('#search-btn').click(performSearch);
+                $('#search-input').on('keypress', function(e) {
+                    if (e.which === 13) performSearch();
+                });
+
+                function performSearch() {
+                    const query = $('#search-input').val().toLowerCase().trim();
+                    if (!query) return;
+
+                    currentSearchResults = [];
+                    allPages.forEach((pageData, index) => {
+                        if (pageData.text.includes(query)) {
+                            currentSearchResults.push(index + 1); // +1 porque turn.js es 1-indexed
+                        }
+                    });
+
+                    if (currentSearchResults.length > 0) {
+                        currentSearchIndex = 0;
+                        book.turn('page', currentSearchResults[0]);
+                        $('#search-results').text(`${currentSearchResults.length} resultados`);
+                    } else {
+                        $('#search-results').text('Sin resultados');
+                    }
+                }
+
+            } catch (error) {
+                $('#status').html(`<span style="color: #e74c3c;">Error al cargar.</span><br><small>${error.message}</small>`);
+                $('.spinner').hide();
+                console.error(error);
+            }
+        }
+
+        $(document).ready(function() {
+            initFlipbook();
+        });
+    </script>
+</body>
+</html>
