@@ -52,7 +52,6 @@ jobs:
           username: root
           key: ${{ secrets.VPS_DEPLOY_KEY }}
           script: |
-            VERSION="${{ steps.version.outputs.VERSION }}"
-            sed -i "s/^CURRENT_VERSION = .*/CURRENT_VERSION = \"$VERSION\"/" /opt/lexview_server/server.py
-            systemctl restart lexview
-            echo "VPS actualizado a v$VERSION"
+             #       VERSION="${{ steps.version.outputs.VERSION }}"
+             #       sed -i "s/^CURRENT_VERSION = .*/CURRENT_VERSION = \"$VERSION\"/" /opt/lexview_server/server.py
+             #       systemctl restart lexview
