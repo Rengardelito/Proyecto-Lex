@@ -1,0 +1,66 @@
+name: Build LexView Pro
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # permite correrlo manualmente desde GitHub
+
+jobs:
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Compilar exe Windows
+        run: pyinstaller LexView.spec --noconfirm
+
+      - name: Comprimir
+        run: Compress-Archive -Path dist\LexView -DestinationPath dist\LexView_Windows.zip
+
+      - name: Subir artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: LexView-Windows
+          path: dist\LexView_Windows.zip
+          retention-days: 30
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Compilar app Mac
+        run: pyinstaller LexView.spec --noconfirm
+
+      - name: Comprimir
+        run: zip -r dist/LexView_Mac.zip dist/LexView
+
+      - name: Subir artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: LexView-Mac
+          path: dist/LexView_Mac.zip
+          retention-days: 30

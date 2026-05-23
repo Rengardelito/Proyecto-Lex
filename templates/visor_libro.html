@@ -1,0 +1,611 @@
+<!-- <!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>LexView Pro - Libro Digital</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
+    <script src="https://rawcdn.githack.com/blasten/turn.js/master/lib/turn.min.js"></script>
+    <style>
+        html {
+            font-size: 18px; /* Agranda todo 12.5% sin romper el layout */
+        }
+        body { 
+            background-color: #0d0d0d; display: flex; flex-direction: column; 
+            height: 100vh; margin: 0; font-family: 'Segoe UI', sans-serif; color: #e0e0e0;
+            overflow: hidden;
+            /* SACAMOS EL ZOOM DE ACA */
+        }
+
+        .toolbar { 
+            width: 100%; background: #1a1a1a; padding: 10px 20px;
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 2px solid #333; z-index: 1000; box-sizing: border-box; 
+            height: 50px; position: fixed; top: 0;
+        }
+        .toolbar-center { display: flex; align-items: center; gap: 10px; }
+        .toolbar button { background: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 1rem; }
+        .toolbar button:hover { background: #0056b3; }
+        .btn-volver { background: #c0392b; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 0.9rem; }
+        #zoom-level { min-width: 50px; text-align: center; }
+
+        #loading { position: fixed; top:50px; left:0; width:100%; height:calc(100vh - 50px); 
+            background: rgba(13, 13, 13, 0.9); display: none; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 5000; }
+        .spinner { width: 50px; height: 50px; border: 5px solid #333; border-top: 5px solid #007bff;
+            border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        #viewport { 
+            width: 100%; height: calc(100vh - 90px); margin-top: 50px;
+            overflow: auto; padding: 150px; box-sizing: border-box; cursor: grab; 
+        }
+        #viewport:active { cursor: grabbing; }
+        
+        #album-container { 
+            position: relative; 
+            transform-origin: 0 0; 
+            margin: 0 auto; 
+            display: table; 
+            transition: transform 0.1s; 
+        }
+        #album-wrapper { margin: 0 auto; }
+        .page { background-color: white; box-shadow: 0 0 40px rgba(0,0,0,0.8); }
+        .hard { background: #1c1c1c !important; }
+        canvas { width: 100%; height: 100%; display: block; }
+
+        #footer { width: 100%; height: 40px; background: #1a1a1a; display: flex; align-items: center; 
+            padding: 0 25px; box-sizing: border-box; border-top: 1px solid #333; gap: 20px; position: fixed; bottom: 0; }
+        #progress-container { flex-grow: 1; height: 6px; background: #222; border-radius: 10px; }
+        #progress-bar { width: 0%; height: 100%; background: #007bff; }
+        #page-counter { font-size: 0.85rem; min-width: 130px; text-align: right; color: #aaa; }
+    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+</head>
+<body>
+    <div class="toolbar">
+        <div>
+            <a href="/" class="btn-volver">✖ Cerrar</a>
+            <span style="margin-left: 15px;"><strong>LexView Pro</strong> | Expte: {{ expte }}</span>
+        </div>
+        <div class="toolbar-center">
+            <button id="zoom-out">➖</button>
+            <span id="zoom-level">100%</span>
+            <button id="zoom-in">➕</button>
+            <button id="zoom-reset">⟲</button>
+        </div>
+        <span id="page-counter">Foja: 0 / 0</span>
+    </div>
+
+    <div id="loading">
+        <div class="spinner"></div>
+        <div id="loading-text">Procesando expediente...</div>
+    </div>
+
+    <div id="viewport">
+        <div id="album-container">
+            <div id="album-wrapper">
+                <div id="album"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="footer">
+        <div id="progress-container"><div id="progress-bar"></div></div>
+    </div>
+
+    <script>
+        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
+
+        let zoomActual = 1;
+        let totalPages = 0;
+        let bookWidth = 0;
+        let bookHeight = 0;
+        const urlBase = "{{ url_for('obtener_pdf', nombre_pdf=archivo_pdf) }}";
+        const urlFinal = urlBase + "?t=" + new Date().getTime();
+
+        // CLAVE: Usamos window.innerWidth directo, sin zoom, y 98% de pantalla
+        function getBookSize() {
+            const availableWidth = window.innerWidth - 300; 
+            const availableHeight = window.innerHeight - 200;
+            
+            const ratio = 1.414;
+            
+            let width = availableWidth * 0.98; // 98% del ancho real
+            let height = width / ratio;
+            
+            if (height > availableHeight) {
+                height = availableHeight * 0.98;
+                width = height * ratio;
+            }
+            
+            // MÍNIMO 1800px. En tu 2K te va a dar 2000-2200px
+            width = Math.max(width, 1800);
+            height = width / ratio;
+            
+            return { width: Math.floor(width), height: Math.floor(height) };
+        }
+
+        function cambiarZoom(delta) {
+            zoomActual = Math.min(Math.max(0.4, zoomActual + delta), 4.0);
+            document.getElementById('album-container').style.transform = `scale(${zoomActual})`;
+            document.getElementById('zoom-level').innerText = Math.round(zoomActual * 100) + "%";
+            centerBook();
+        }
+
+        function centerBook() {
+            const v = document.getElementById('viewport');
+            const container = document.getElementById('album-container');
+            v.scrollLeft = (container.offsetWidth * zoomActual - v.clientWidth) / 2;
+            v.scrollTop = (container.offsetHeight * zoomActual - v.clientHeight) / 2;
+        }
+
+        async function initFlipbook() {
+            try {
+                $('#loading').css('display', 'flex');
+                const loadingTask = pdfjsLib.getDocument(urlFinal);
+                const pdf = await loadingTask.promise;
+                totalPages = pdf.numPages;
+                $('#total-pages').text(totalPages);
+                
+                const bookSize = getBookSize();
+                bookWidth = bookSize.width;
+                bookHeight = bookSize.height;
+                
+                $('#album-wrapper').css({ width: bookWidth + 'px', height: bookHeight + 'px' });
+                
+                const newAlbum = $('#album');
+                const pageWidth = bookWidth / 2;
+                const pageHeight = bookHeight;
+
+                newAlbum.append(`<div class="hard" style="width:${pageWidth}px;height:${pageHeight}px"></div>`);
+
+                for (let i = 1; i <= totalPages; i++) {
+                    document.getElementById('loading-text').innerText = `Renderizando foja ${i} de ${totalPages}...`;
+                    const page = await pdf.getPage(i);
+                    
+                    const unscaledViewport = page.getViewport({ scale: 1.0 });
+                    const scale = Math.min(pageWidth / unscaledViewport.width, pageHeight / unscaledViewport.height) * 0.96;
+                    const viewport = page.getViewport({ scale: scale });
+                    
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+                    
+                    await page.render({canvasContext: context, viewport: viewport}).promise;
+                    
+                    const pageDiv = $('<div class="page"/>').css({
+                        width: pageWidth + 'px',
+                        height: pageHeight + 'px',
+                        display: 'flex',
+                        'justify-content': 'center',
+                        'align-items': 'center',
+                        overflow: 'hidden'
+                    }).append(canvas);
+                    
+                    newAlbum.append(pageDiv);
+                }
+
+                if (totalPages % 2 === 0) {
+                    newAlbum.append(`<div class="hard" style="width:${pageWidth}px;height:${pageHeight}px"></div>`);
+                }
+
+                $('#loading').hide();
+
+                newAlbum.turn({
+                    width: bookWidth, height: bookHeight, autoCenter: true, gradients: true, shadows: true,
+                    display: 'double', // Forzamos doble página
+                    when: { turned: function(e, page) {
+                        const porcentaje = (page / (totalPages + 1)) * 100;
+                        document.getElementById('progress-bar').style.width = porcentaje + "%";
+                        document.getElementById('page-counter').innerText = `Foja: ${page} / ${totalPages}`;
+                    }}
+                });
+
+                setTimeout(centerBook, 150);
+
+                $('#zoom-in').click(() => cambiarZoom(0.25));
+                $('#zoom-out').click(() => cambiarZoom(-0.25));
+                $('#zoom-reset').click(() => { zoomActual = 1; cambiarZoom(0); });
+
+                let isDown = false, startX, startY, scrollLeft, scrollTop;
+                const v = document.getElementById('viewport');
+                v.addEventListener('mousedown', (e) => { 
+                    if (e.target.closest('#album')) return;
+                    isDown = true; 
+                    startX = e.pageX - v.offsetLeft; 
+                    startY = e.pageY - v.offsetTop; 
+                    scrollLeft = v.scrollLeft; 
+                    scrollTop = v.scrollTop; 
+                });
+                v.addEventListener('mouseup', () => isDown = false);
+                v.addEventListener('mouseleave', () => isDown = false);
+                v.addEventListener('mousemove', (e) => { 
+                    if (!isDown) return; 
+                    v.scrollLeft = scrollLeft - (e.pageX - v.offsetLeft - startX) * 1.5; 
+                    v.scrollTop = scrollTop - (e.pageY - v.offsetTop - startY) * 1.5; 
+                });
+
+                window.addEventListener('wheel', (e) => { 
+                    if (e.ctrlKey) { 
+                        e.preventDefault(); 
+                        cambiarZoom(e.deltaY > 0 ? -0.2 : 0.2); 
+                    } 
+                }, { passive: false });
+
+                $(window).bind('keydown', (e) => { 
+                    if (e.keyCode == 37) $('#album').turn('previous'); 
+                    if (e.keyCode == 39) $('#album').turn('next'); 
+                });
+
+                let resizeTimeout;
+                $(window).on('resize', function() {
+                    clearTimeout(resizeTimeout);
+                    resizeTimeout = setTimeout(function() {
+                        location.reload();
+                    }, 500);
+                });
+
+            } catch (error) { 
+                alert("Error al cargar PDF: " + error.message); 
+                $('#loading').hide();
+            }
+        }
+
+        $(document).ready(function() {
+            initFlipbook();
+        });
+    </script>
+</body>
+</html> -->
+
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>LexView Pro - Libro Digital</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
+    <script src="https://rawcdn.githack.com/blasten/turn.js/master/lib/turn.min.js"></script>
+    <style>
+        html {
+            font-size: 18px;
+        }
+        body { 
+            background-color: #0d0d0d; display: flex; flex-direction: column; 
+            height: 100vh; margin: 0; font-family: 'Segoe UI', sans-serif; color: #e0e0e0;
+            overflow: hidden;
+        }
+
+        .toolbar { 
+            width: 100%; background: #1a1a1a; padding: 10px 20px;
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 2px solid #333; z-index: 1000; box-sizing: border-box; 
+            height: 50px; position: fixed; top: 0;
+        }
+        .toolbar-center { display: flex; align-items: center; gap: 10px; }
+        .toolbar button { background: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 1rem; }
+        .toolbar button:hover { background: #0056b3; }
+        .btn-volver { background: #c0392b; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 0.9rem; }
+        #zoom-level { min-width: 50px; text-align: center; }
+
+        /* NUEVO: Sidebar con lista de archivos */
+        #sidebar {
+            position: fixed;
+            left: 0;
+            top: 50px;
+            width: 320px;
+            height: calc(100vh - 90px);
+            background: #1a1a1a;
+            border-right: 2px solid #333;
+            overflow-y: auto;
+            z-index: 999;
+            padding: 15px;
+            box-sizing: border-box;
+        }
+        #sidebar h3 {
+            color: #00ff88;
+            margin: 0 0 15px 0;
+            font-size: 0.95rem;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+        }
+        .archivo-item {
+            padding: 10px;
+            margin-bottom: 8px;
+            background: #222;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid #333;
+        }
+        .archivo-item:hover {
+            background: #2a2a2a;
+            border-color: #00ff88;
+        }
+        .archivo-fecha {
+            color: #00ff88;
+            font-family: monospace;
+            font-size: 0.85rem;
+            font-weight: bold;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .archivo-nombre {
+            color: #aaa;
+            font-size: 0.8rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: block;
+        }
+
+        #loading { position: fixed; top:50px; left:0; width:100%; height:calc(100vh - 50px); 
+            background: rgba(13, 13, 13, 0.9); display: none; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 5000; }
+        .spinner { width: 50px; height: 50px; border: 5px solid #333; border-top: 5px solid #007bff;
+            border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        #viewport { 
+            width: calc(100% - 320px); /* Ajustado por sidebar */
+            height: calc(100vh - 90px); 
+            margin-top: 50px;
+            margin-left: 320px; /* Ajustado por sidebar */
+            overflow: auto; 
+            padding: 150px; 
+            box-sizing: border-box; 
+            cursor: grab; 
+        }
+        #viewport:active { cursor: grabbing; }
+        
+        #album-container { 
+            position: relative; 
+            transform-origin: 0 0; 
+            margin: 0 auto; 
+            display: table; 
+            transition: transform 0.1s; 
+        }
+        #album-wrapper { margin: 0 auto; }
+        .page { background-color: white; box-shadow: 0 0 40px rgba(0,0,0,0.8); }
+        .hard { background: #1c1c1c !important; }
+        canvas { width: 100%; height: 100%; display: block; }
+
+        #footer { 
+            width: 100%; 
+            height: 40px; 
+            background: #1a1a1a; 
+            display: flex; 
+            align-items: center; 
+            padding: 0 25px; 
+            box-sizing: border-box; 
+            border-top: 1px solid #333; 
+            gap: 20px; 
+            position: fixed; 
+            bottom: 0; 
+            left: 320px; /* Ajustado por sidebar */
+            width: calc(100% - 320px);
+        }
+        #progress-container { flex-grow: 1; height: 6px; background: #222; border-radius: 10px; }
+        #progress-bar { width: 0%; height: 100%; background: #007bff; }
+        #page-counter { font-size: 0.85rem; min-width: 130px; text-align: right; color: #aaa; }
+    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+</head>
+<body>
+    <div class="toolbar">
+        <div>
+            <a href="/" class="btn-volver">✖ Cerrar</a>
+            <span style="margin-left: 15px;"><strong>LexView Pro</strong> | Expte: {{ expte }}</span>
+        </div>
+        <div class="toolbar-center">
+            <button id="zoom-out">➖</button>
+            <span id="zoom-level">100%</span>
+            <button id="zoom-in">➕</button>
+            <button id="zoom-reset">⟲</button>
+        </div>
+        <span id="page-counter">Foja: 0 / 0</span>
+    </div>
+
+    <!-- NUEVO: Sidebar con lista ordenada -->
+    <div id="sidebar">
+        <h3>📄 Actuaciones ({{ archivos_ordenados|length }})</h3>
+        {% for item in archivos_ordenados %}
+            {% if item.archivo != 'caratula_generada.pdf' %}
+            <div class="archivo-item" data-archivo="{{ item.archivo }}">
+                <span class="archivo-fecha">{{ item.fecha }}</span>
+                <span class="archivo-nombre" title="{{ item.archivo }}">{{ item.archivo }}</span>
+            </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+
+    <div id="loading">
+        <div class="spinner"></div>
+        <div id="loading-text">Procesando expediente...</div>
+    </div>
+
+    <div id="viewport">
+        <div id="album-container">
+            <div id="album-wrapper">
+                <div id="album"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="footer">
+        <div id="progress-container"><div id="progress-bar"></div></div>
+    </div>
+
+    <script>
+        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
+
+        let zoomActual = 1;
+        let totalPages = 0;
+        let bookWidth = 0;
+        let bookHeight = 0;
+        const urlBase = "{{ url_for('obtener_pdf', nombre_pdf=archivo_pdf) }}";
+        const urlFinal = urlBase + "?t=" + new Date().getTime();
+
+        function getBookSize() {
+            const availableWidth = window.innerWidth - 620; // 320 sidebar + 300 margen
+            const availableHeight = window.innerHeight - 200;
+            
+            const ratio = 1.414;
+            
+            let width = availableWidth * 0.98;
+            let height = width / ratio;
+            
+            if (height > availableHeight) {
+                height = availableHeight * 0.98;
+                width = height * ratio;
+            }
+            
+            width = Math.max(width, 1800);
+            height = width / ratio;
+            
+            return { width: Math.floor(width), height: Math.floor(height) };
+        }
+
+        function cambiarZoom(delta) {
+            zoomActual = Math.min(Math.max(0.4, zoomActual + delta), 4.0);
+            document.getElementById('album-container').style.transform = `scale(${zoomActual})`;
+            document.getElementById('zoom-level').innerText = Math.round(zoomActual * 100) + "%";
+            centerBook();
+        }
+
+        function centerBook() {
+            const v = document.getElementById('viewport');
+            const container = document.getElementById('album-container');
+            v.scrollLeft = (container.offsetWidth * zoomActual - v.clientWidth) / 2;
+            v.scrollTop = (container.offsetHeight * zoomActual - v.clientHeight) / 2;
+        }
+
+        async function initFlipbook() {
+            try {
+                $('#loading').css('display', 'flex');
+                const loadingTask = pdfjsLib.getDocument(urlFinal);
+                const pdf = await loadingTask.promise;
+                totalPages = pdf.numPages;
+                
+                const bookSize = getBookSize();
+                bookWidth = bookSize.width;
+                bookHeight = bookSize.height;
+                
+                $('#album-wrapper').css({ width: bookWidth + 'px', height: bookHeight + 'px' });
+                
+                const newAlbum = $('#album');
+                const pageWidth = bookWidth / 2;
+                const pageHeight = bookHeight;
+
+                newAlbum.append(`<div class="hard" style="width:${pageWidth}px;height:${pageHeight}px"></div>`);
+
+                for (let i = 1; i <= totalPages; i++) {
+                    document.getElementById('loading-text').innerText = `Renderizando foja ${i} de ${totalPages}...`;
+                    const page = await pdf.getPage(i);
+                    
+                    const unscaledViewport = page.getViewport({ scale: 1.0 });
+                    const scale = Math.min(pageWidth / unscaledViewport.width, pageHeight / unscaledViewport.height) * 0.96;
+                    const viewport = page.getViewport({ scale: scale });
+                    
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+                    
+                    await page.render({canvasContext: context, viewport: viewport}).promise;
+                    
+                    const pageDiv = $('<div class="page"/>').css({
+                        width: pageWidth + 'px',
+                        height: pageHeight + 'px',
+                        display: 'flex',
+                        'justify-content': 'center',
+                        'align-items': 'center',
+                        overflow: 'hidden'
+                    }).append(canvas);
+                    
+                    newAlbum.append(pageDiv);
+                }
+
+                if (totalPages % 2 === 0) {
+                    newAlbum.append(`<div class="hard" style="width:${pageWidth}px;height:${pageHeight}px"></div>`);
+                }
+
+                $('#loading').hide();
+
+                newAlbum.turn({
+                    width: bookWidth, height: bookHeight, autoCenter: true, gradients: true, shadows: true,
+                    display: 'double',
+                    when: { turned: function(e, page) {
+                        const porcentaje = (page / (totalPages + 1)) * 100;
+                        document.getElementById('progress-bar').style.width = porcentaje + "%";
+                        document.getElementById('page-counter').innerText = `Foja: ${page} / ${totalPages}`;
+                    }}
+                });
+
+                setTimeout(centerBook, 150);
+
+                $('#zoom-in').click(() => cambiarZoom(0.25));
+                $('#zoom-out').click(() => cambiarZoom(-0.25));
+                $('#zoom-reset').click(() => { zoomActual = 1; cambiarZoom(0); });
+
+                // Click en sidebar - por ahora solo resalta, después podemos mapear a páginas
+                $('.archivo-item').click(function() {
+                    $('.archivo-item').css('background', '#222');
+                    $(this).css('background', '#00ff8833');
+                });
+
+                let isDown = false, startX, startY, scrollLeft, scrollTop;
+                const v = document.getElementById('viewport');
+                v.addEventListener('mousedown', (e) => { 
+                    if (e.target.closest('#album')) return;
+                    isDown = true; 
+                    startX = e.pageX - v.offsetLeft; 
+                    startY = e.pageY - v.offsetTop; 
+                    scrollLeft = v.scrollLeft; 
+                    scrollTop = v.scrollTop; 
+                });
+                v.addEventListener('mouseup', () => isDown = false);
+                v.addEventListener('mouseleave', () => isDown = false);
+                v.addEventListener('mousemove', (e) => { 
+                    if (!isDown) return; 
+                    v.scrollLeft = scrollLeft - (e.pageX - v.offsetLeft - startX) * 1.5; 
+                    v.scrollTop = scrollTop - (e.pageY - v.offsetTop - startY) * 1.5; 
+                });
+
+                window.addEventListener('wheel', (e) => { 
+                    if (e.ctrlKey) { 
+                        e.preventDefault(); 
+                        cambiarZoom(e.deltaY > 0 ? -0.2 : 0.2); 
+                    } 
+                }, { passive: false });
+
+                $(window).bind('keydown', (e) => { 
+                    if (e.keyCode == 37) $('#album').turn('previous'); 
+                    if (e.keyCode == 39) $('#album').turn('next'); 
+                });
+
+                let resizeTimeout;
+                $(window).on('resize', function() {
+                    clearTimeout(resizeTimeout);
+                    resizeTimeout = setTimeout(function() {
+                        location.reload();
+                    }, 500);
+                });
+
+            } catch (error) { 
+                alert("Error al cargar PDF: " + error.message); 
+                $('#loading').hide();
+            }
+        }
+
+        $(document).ready(function() {
+            initFlipbook();
+        });
+    </script>
+</body>
+</html>

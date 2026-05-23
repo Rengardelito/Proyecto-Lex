@@ -1,0 +1,45 @@
+# .github/workflows/release.yml
+# Se activa cuando se pushea un tag tipo v1.2.0
+# Genera el zip de actualización y lo adjunta al Release de GitHub
+
+name: Build & Release Update Package
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build-update-package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Extraer versión del tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Generar zip de actualización
+        run: python build_release.py ${{ steps.version.outputs.VERSION }}
+
+      - name: Crear GitHub Release y subir assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "LexView Pro v${{ steps.version.outputs.VERSION }}"
+          body_path: changelogs/${{ steps.version.outputs.VERSION }}.md
+          fail_on_unmatched_files: false
+          files: |
+            dist/lexview-update-${{ steps.version.outputs.VERSION }}.zip
+            dist/lexview-update-${{ steps.version.outputs.VERSION }}.zip.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

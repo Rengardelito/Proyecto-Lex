@@ -1,0 +1,6 @@
+flask
+flask-sqlalchemy
+psycopg2-binary
+pdfkit
+PyPDF2
+gunicorn

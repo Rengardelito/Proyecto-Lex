@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LexView Pro - Configuración Inicial</title>
+    <style>
+        body { 
+            background: linear-gradient(135deg, #0d0d0d 0%, #1a2a40 100%); 
+            color: white; font-family: 'Segoe UI', sans-serif; 
+            display: flex; justify-content: center; align-items: center; 
+            min-height: 100vh; margin: 0; 
+        }
+        .login-box { 
+            background: rgba(26, 26, 26, 0.9); 
+            padding: 40px; border-radius: 15px; 
+            border: 1px solid #00c853; 
+            box-shadow: 0 0 20px rgba(0, 200, 83, 0.3);
+            width: 380px; text-align: center;
+        }
+        h1 { color: #007bff; font-size: 24px; margin-bottom: 5px; }
+        .subtitulo { color: #aaa; font-size: 13px; margin-bottom: 8px; }
+        .badge-setup {
+            display: inline-block;
+            background: #00c853;
+            color: #000;
+            font-size: 11px;
+            font-weight: bold;
+            padding: 3px 10px;
+            border-radius: 20px;
+            margin-bottom: 25px;
+            letter-spacing: 1px;
+        }
+        .seccion {
+            text-align: left;
+            font-size: 11px;
+            color: #00c853;
+            font-weight: bold;
+            letter-spacing: 1px;
+            margin: 18px 0 6px 2px;
+        }
+        input { 
+            width: 100%; padding: 12px; margin: 5px 0; 
+            background: #222; border: 1px solid #444; 
+            color: white; border-radius: 5px; box-sizing: border-box;
+            font-size: 14px;
+        }
+        input:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 6px rgba(0,123,255,0.3);
+        }
+        input::placeholder { color: #666; }
+        .hint {
+            font-size: 11px;
+            color: #666;
+            text-align: left;
+            margin: 2px 0 8px 2px;
+        }
+        button { 
+            width: 100%; padding: 13px; background: #00c853; 
+            border: none; color: #000; cursor: pointer; 
+            font-weight: bold; border-radius: 5px; margin-top: 22px;
+            font-size: 15px; letter-spacing: 1px;
+            transition: 0.3s;
+        }
+        button:hover { background: #00a844; box-shadow: 0 0 12px #00c853; }
+        .error { color: #ff4d4d; font-size: 13px; margin-top: 12px; background: rgba(255,77,77,0.1); padding: 8px; border-radius: 5px; }
+        .success { color: #00c853; font-size: 13px; margin-top: 12px; }
+        .warning { color: #ffaa00; font-size: 13px; margin-top: 12px; background: rgba(255,170,0,0.1); padding: 8px; border-radius: 5px; }
+        .divider {
+            border: none;
+            border-top: 1px solid #333;
+            margin: 20px 0 0 0;
+        }
+        .footer-note {
+            font-size: 11px;
+            color: #555;
+            margin-top: 18px;
+        }
+
+        /* ── Botón ID dispositivo ── */
+        .btn-device-id {
+            width: 100%;
+            padding: 10px;
+            background: transparent;
+            border: 1px solid #333;
+            color: #666;
+            cursor: pointer;
+            font-size: 12px;
+            border-radius: 5px;
+            margin-top: 14px;
+            transition: 0.2s;
+            letter-spacing: 0.5px;
+        }
+        .btn-device-id:hover {
+            border-color: #007bff;
+            color: #007bff;
+            background: rgba(0,123,255,0.05);
+            box-shadow: none;
+        }
+
+        /* ── Panel ID ── */
+        #panel-device-id {
+            display: none;
+            margin-top: 14px;
+            background: #111;
+            border: 1px solid #007bff;
+            border-radius: 8px;
+            padding: 14px;
+            text-align: left;
+        }
+        #panel-device-id .id-label {
+            font-size: 10px;
+            color: #007bff;
+            font-weight: bold;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+        #panel-device-id .id-value {
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #00e676;
+            background: #0a0a0a;
+            padding: 10px;
+            border-radius: 5px;
+            word-break: break-all;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+        .btn-copiar {
+            width: 100%;
+            padding: 8px;
+            background: #007bff;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: bold;
+            border-radius: 5px;
+            margin-top: 0;
+            transition: 0.2s;
+            letter-spacing: 0.5px;
+        }
+        .btn-copiar:hover {
+            background: #0056cc;
+            box-shadow: 0 0 8px rgba(0,123,255,0.4);
+        }
+        .id-instruccion {
+            font-size: 11px;
+            color: #555;
+            margin-top: 8px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h1>⚖️ LexView Pro</h1>
+        <p class="subtitulo">Sistema de Gestión Táctica</p>
+        <span class="badge-setup">✦ CONFIGURACIÓN INICIAL</span>
+
+        <form method="POST">
+
+            <div class="seccion">▸ ACCESO AL SISTEMA</div>
+            <input type="text" name="username" placeholder="Nombre de usuario" required>
+            <p class="hint">Sin espacios ni tildes. Ej: juan_perez</p>
+            <input type="password" name="password" placeholder="Contraseña" required>
+            <input type="password" name="password2" placeholder="Repetir contraseña" required>
+
+            <hr class="divider">
+            <div class="seccion">▸ DATOS PROFESIONALES</div>
+            <input type="text" name="nombre_completo" placeholder="Nombre completo (opcional)">
+            <input type="text" name="matricula" placeholder="Matrícula (opcional)">
+            <hr class="divider">
+            <div class="seccion">▸ ÁMBITO DE EJERCICIO</div>
+            <div style="text-align:left; margin: 8px 0;">
+                <label style="display:flex; align-items:center; gap:10px; cursor:pointer; padding:10px; background:#111; border:1px solid #333; border-radius:5px; margin-bottom:8px;">
+                    <input type="radio" name="alcance" value="capital" checked style="width:auto; margin:0; accent-color:#007bff;">
+                    <div>
+                        <div style="color:#fff; font-size:13px; font-weight:600;">Solo Capital</div>
+                        <div style="color:#666; font-size:11px;">Notificaciones únicamente de Corrientes Capital</div>
+                    </div>
+                </label>
+                <label style="display:flex; align-items:center; gap:10px; cursor:pointer; padding:10px; background:#111; border:1px solid #333; border-radius:5px;">
+                    <input type="radio" name="alcance" value="provincial" style="width:auto; margin:0; accent-color:#007bff;">
+                    <div>
+                        <div style="color:#fff; font-size:13px; font-weight:600;">Toda la Provincia</div>
+                        <div style="color:#666; font-size:11px;">Recorre todas las localidades (más lento)</div>
+                    </div>
+                </label>
+            </div>
+            <hr class="divider">
+            <div class="seccion">▸ CREDENCIALES FORUM</div>
+            <input type="text" name="forum_user" placeholder="Usuario Forum" required>
+            <input type="password" name="forum_pass" placeholder="Contraseña Forum" required>
+
+            <button type="submit">✦ CREAR MI CUENTA Y ENTRAR</button>
+        </form>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="{{ 'error' if category == 'error' else ('warning' if category == 'warning' else 'success') }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <!-- ── Botón ID de dispositivo ── -->
+        <button class="btn-device-id" onclick="toggleDeviceId()">
+            🖥️ Ver ID de mi dispositivo
+        </button>
+
+        <div id="panel-device-id">
+            <div class="id-label">▸ ID DE ESTE DISPOSITIVO</div>
+            <div class="id-value" id="device-id-value">Calculando...</div>
+            <button class="btn-copiar" onclick="copiarId()">📋 Copiar ID</button>
+            <div class="id-instruccion">
+                Enviá este código al desarrollador por WhatsApp para activar tu licencia en este dispositivo.
+            </div>
+        </div>
+
+        <p class="footer-note">Esta pantalla solo aparece la primera vez.<br>Tus datos se guardan localmente en tu PC.</p>
+    </div>
+
+    <script>
+        let idCargado = false;
+
+        function toggleDeviceId() {
+            const panel = document.getElementById('panel-device-id');
+            const visible = panel.style.display === 'block';
+
+            if (visible) {
+                panel.style.display = 'none';
+                return;
+            }
+
+            panel.style.display = 'block';
+
+            // Solo buscar el ID una vez
+            if (idCargado) return;
+
+            fetch('/api/device_id')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('device-id-value').textContent = data.hardware_id || 'No disponible';
+                    idCargado = true;
+                })
+                .catch(() => {
+                    document.getElementById('device-id-value').textContent = 'Error al obtener ID';
+                });
+        }
+
+        function copiarId() {
+            const id = document.getElementById('device-id-value').textContent;
+            navigator.clipboard.writeText(id).then(() => {
+                const btn = document.querySelector('.btn-copiar');
+                btn.textContent = '✓ Copiado';
+                btn.style.background = '#00c853';
+                btn.style.color = '#000';
+                setTimeout(() => {
+                    btn.textContent = '📋 Copiar ID';
+                    btn.style.background = '#007bff';
+                    btn.style.color = 'white';
+                }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>
