@@ -488,105 +488,196 @@ def leer_caratula_desde_pagina(driver) -> str:
         print(f"⚠️ No se pudo leer carátula: {e}")
         return "SIN CARATULAR"
 
+def esperar_tabla_actuaciones(driver, timeout=15):
+    """
+    Busca específicamente la tabla de Actuaciones.
+    Evita agarrar la tabla de datos/radicación del expediente.
+    """
+    wait = WebDriverWait(driver, timeout)
+
+    wait.until(EC.presence_of_element_located((By.XPATH, "//table")))
+
+    for _ in range(20):
+        tablas = driver.find_elements(By.XPATH, "//table[contains(@class,'Grid') or .//th]")
+
+        for tabla in tablas:
+            try:
+                headers = tabla.find_elements(By.XPATH, ".//tr[1]/th")
+                textos = [h.text.strip().upper() for h in headers if h.text.strip()]
+
+                tiene_fecha = any("FECHA" in t for t in textos)
+                tiene_numero = any("NÚMERO" in t or "NUMERO" in t or t == "NUM" for t in textos)
+                tiene_extracto = any("EXTRACTO" in t or "DETALLE" in t for t in textos)
+                tiene_documento = any("DOCUMENTO" in t for t in textos)
+
+                if tiene_fecha and tiene_numero and tiene_extracto and tiene_documento:
+                    return tabla
+
+            except StaleElementReferenceException:
+                continue
+
+        time.sleep(0.5)
+
+    raise TimeoutException("No se encontró la tabla específica de Actuaciones")
 
 def sincronizar_pdfs(driver, ruta_local, temp_download_path, fecha_desde=None, cortar_si_existe=False):
     """
-    v4.3: Soporte RTF + PDF. Usa columna 'Número' como ID único.
-    Sistema de reintentos: archivos que fallan por timeout se reintentán al final.
-    Reporte final con archivos que no se pudieron descargar.
+    v4.7: Usa tabla correcta de Actuaciones + paginación fuera de la tabla.
     """
     t0 = t_mod.time()
     descargas_totales = 0
     pagina_actual = 1
     numeros_ya_descargados = set()
-    fallidos = []  # lista de dicts con info de cada archivo que falló
+    nombres_ya_descargados = set()
+    fallidos = []
 
     if not os.path.exists(ruta_local):
         os.makedirs(ruta_local, exist_ok=True)
 
     for f in os.listdir(ruta_local):
-        if f.endswith('.pdf'):
-            match = re.search(r'_(\d{6,8})\.pdf$', f)
+        if f.endswith(".pdf"):
+            match = re.search(r"_(\d{6,8})\.pdf$", f)
             if match:
                 numeros_ya_descargados.add(match.group(1))
 
+            nombre_sin_ext = f[:-4]
+            nombre_limpio = re.sub(r"_\d{6,8}$", "", nombre_sin_ext).strip()
+            nombres_ya_descargados.add(nombre_limpio)
+
     print(f"IDs ya existentes: {len(numeros_ya_descargados)}")
 
-    # ── FUNCIÓN INTERNA: descarga un archivo dado el botón ──────────────
     def _descargar_fila(boton, numero_id, nombre_final, ruta_local, temp_download_path):
         archivos_antes = set(os.listdir(temp_download_path))
+
         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", boton)
         t_mod.sleep(0.3)
         driver.execute_script("arguments[0].click();", boton)
 
         archivo_descargado = None
+
         for _ in range(30):
             t_mod.sleep(0.5)
+
             archivos_despues = set(os.listdir(temp_download_path))
             nuevos = archivos_despues - archivos_antes
+
             archivos_completos = [
                 f for f in nuevos
-                if (f.lower().endswith('.pdf') or f.lower().endswith('.rtf'))
-                and not f.endswith('.crdownload')
+                if (f.lower().endswith(".pdf") or f.lower().endswith(".rtf"))
+                and not f.endswith(".crdownload")
             ]
+
             if archivos_completos:
                 archivo_descargado = archivos_completos[0]
                 ruta_temp = os.path.join(temp_download_path, archivo_descargado)
+
                 if os.path.exists(ruta_temp):
                     size1 = os.path.getsize(ruta_temp)
                     t_mod.sleep(1)
                     size2 = os.path.getsize(ruta_temp)
+
                     if size1 == size2 and size1 > 500:
                         break
+
                 archivo_descargado = None
 
         if not archivo_descargado:
             return False
 
-        origen  = os.path.join(temp_download_path, archivo_descargado)
+        origen = os.path.join(temp_download_path, archivo_descargado)
         destino = os.path.join(ruta_local, nombre_final + ".pdf")
+
         return _mover_archivo(origen, destino)
 
-    # ── LOOP PRINCIPAL DE PÁGINAS ────────────────────────────────────────
+    def _buscar_boton_siguiente():
+        posibles = driver.find_elements(
+            By.XPATH,
+            "//a[normalize-space()='Sig' or contains(normalize-space(), 'Sig')]"
+        )
+
+        for b in posibles:
+            try:
+                texto = b.text.strip().lower()
+                clase = (b.get_attribute("class") or "").lower()
+                aria_disabled = (b.get_attribute("aria-disabled") or "").lower()
+                href = b.get_attribute("href") or ""
+
+                if not texto.startswith("sig"):
+                    continue
+
+                if "disabled" in clase or aria_disabled == "true":
+                    continue
+
+                if not b.is_displayed() or not b.is_enabled():
+                    continue
+
+                return b
+
+            except Exception:
+                continue
+
+        return None
+
     while True:
         print(f"\n=== PROCESANDO PÁGINA {pagina_actual} ===")
+
         try:
-            wait = WebDriverWait(driver, 15)
-            wait.until(EC.presence_of_element_located((By.XPATH, "//table//tbody")))
+            tabla_actuaciones = esperar_tabla_actuaciones(driver, timeout=25)
 
             for _ in range(10):
-                time.sleep(0.8)
-                ths = driver.find_elements(By.XPATH, "//table[contains(@class,'Grid')]//tr[1]/th")
-                if ths and any(h.text.strip() for h in ths):
+                t_mod.sleep(0.8)
+
+                headers = tabla_actuaciones.find_elements(By.XPATH, ".//tr[1]/th")
+                textos_headers = [h.text.strip() for h in headers]
+
+                if headers and any(textos_headers):
                     break
+
+                tabla_actuaciones = esperar_tabla_actuaciones(driver, timeout=10)
             else:
                 print(f"⚠️ Headers vacíos en página {pagina_actual}, reintentando...")
-                time.sleep(2)
-                ths = driver.find_elements(By.XPATH, "//table[contains(@class,'Grid')]//tr[1]/th")
-                if not any(h.text.strip() for h in ths):
+                t_mod.sleep(2)
+
+                tabla_actuaciones = esperar_tabla_actuaciones(driver, timeout=10)
+                headers = tabla_actuaciones.find_elements(By.XPATH, ".//tr[1]/th")
+                textos_headers = [h.text.strip() for h in headers]
+
+                if not any(textos_headers):
                     print("❌ Headers siguen vacíos, cortando")
                     break
 
         except TimeoutException:
-            print("❌ No se detectó tabla")
+            print("❌ No se detectó tabla de Actuaciones")
             break
 
         idx_map = {}
+
         try:
-            headers = driver.find_elements(By.XPATH, "//table[contains(@class, 'Grid')]//tr[1]/th")
+            headers = tabla_actuaciones.find_elements(By.XPATH, ".//tr[1]/th")
+
             for i, h in enumerate(headers):
                 texto = h.text.strip().upper()
-                if 'FECHA' in texto:
-                    idx_map['fecha'] = i
-                elif 'NUMERO' in texto or texto == 'NÚMERO' or texto == 'NUM':
-                    idx_map['numero'] = i
-                elif 'EXTRACTO' in texto or 'DETALLE' in texto:
-                    idx_map['extracto'] = i
 
-            if 'numero' not in idx_map:
+                if "FECHA" in texto:
+                    idx_map["fecha"] = i
+                elif "NUMERO" in texto or "NÚMERO" in texto or texto == "NUM":
+                    idx_map["numero"] = i
+                elif "EXTRACTO" in texto or "DETALLE" in texto:
+                    idx_map["extracto"] = i
+
+            print(f"Headers encontrados: {[h.text for h in headers]}")
+
+            try:
+                primera_fila = tabla_actuaciones.find_elements(By.XPATH, ".//tbody/tr[1]/td")
+                print(f"Primera fila: {[c.text for c in primera_fila]}")
+            except Exception:
+                pass
+
+            if "numero" not in idx_map:
                 print("❌ No encontré columna 'Número'. Headers:", [h.text for h in headers])
                 return descargas_totales
-            if 'fecha' not in idx_map:
+
+            if "fecha" not in idx_map:
                 print("❌ No encontré columna 'Fecha'")
                 return descargas_totales
 
@@ -594,74 +685,101 @@ def sincronizar_pdfs(driver, ruta_local, temp_download_path, fecha_desde=None, c
             print(f"Error detectando headers: {e}")
             return descargas_totales
 
-        filas = driver.find_elements(By.XPATH, "//table//tbody/tr")
+        filas = tabla_actuaciones.find_elements(By.XPATH, ".//tbody/tr")
+
         if not filas:
             print("No hay filas")
             break
 
         numeros_pagina_actual = []
+
         for fila in filas:
             try:
                 celdas = fila.find_elements(By.TAG_NAME, "td")
-                if len(celdas) > idx_map['numero']:
-                    num = celdas[idx_map['numero']].text.strip()
+
+                if len(celdas) > idx_map["numero"]:
+                    num = celdas[idx_map["numero"]].text.strip()
+
                     if num.isdigit():
                         numeros_pagina_actual.append(num)
-            except:
+            except Exception:
                 pass
 
         print(f"Filas: {len(filas)} - Números: {numeros_pagina_actual[:3]}...")
 
         descargas_pagina = 0
+        idx_fila = 0
 
-        for idx_fila, fila in enumerate(filas):
+        while idx_fila < len(filas):
+            fila = filas[idx_fila]
+
             try:
                 celdas = fila.find_elements(By.TAG_NAME, "td")
+
                 if len(celdas) < 3:
+                    idx_fila += 1
                     continue
 
-                numero_id = celdas[idx_map['numero']].text.strip()
+                numero_id = celdas[idx_map["numero"]].text.strip()
+
                 if not numero_id or not numero_id.isdigit():
+                    idx_fila += 1
                     continue
 
-                if numero_id in numeros_ya_descargados:
-                    if cortar_si_existe:
-                        print(f"🏁 ID {numero_id} ya existe → cortando")
-                       
-                        return descargas_totales
-                    continue
+                fecha_str = celdas[idx_map["fecha"]].text.strip()
 
-                fecha_str = celdas[idx_map['fecha']].text.strip()
-                if not re.search(r'\d{1,2}/\d{1,2}/\d{2,4}', fecha_str):
+                if not re.search(r"\d{1,2}/\d{1,2}/\d{2,4}", fecha_str):
+                    idx_fila += 1
                     continue
 
                 fecha_dt = datetime.strptime(fecha_str, "%d/%m/%Y")
                 fecha_iso = fecha_dt.strftime("%Y-%m-%d")
 
-                if fecha_desde and fecha_dt.date() < fecha_desde:
-                    continue
-
                 tipo_str = ""
-                if 'extracto' in idx_map and idx_map['extracto'] < len(celdas):
-                    tipo_str = celdas[idx_map['extracto']].text.strip()[:60]
+
+                if "extracto" in idx_map and idx_map["extracto"] < len(celdas):
+                    tipo_str = celdas[idx_map["extracto"]].text.strip()[:60]
 
                 tipo_str = re.sub(r'[\\/*?:"<>|]', "_", tipo_str)
+                nombre_sin_id = f"{fecha_iso} - {tipo_str}".strip()
+
+                if numero_id in numeros_ya_descargados:
+                    if cortar_si_existe:
+                        print(f"🏁 ID {numero_id} ya existe → cortando")
+                        return descargas_totales
+
+                    idx_fila += 1
+                    continue
+
+                if nombre_sin_id in nombres_ya_descargados:
+                    idx_fila += 1
+                    continue
+
+                if fecha_desde and fecha_dt.date() < fecha_desde:
+                    idx_fila += 1
+                    continue
+
                 nombre_final = f"{fecha_iso} - {tipo_str}_{numero_id}".strip()
 
                 try:
                     boton = fila.find_element(By.XPATH, ".//a")
                 except NoSuchElementException:
+                    idx_fila += 1
                     continue
 
-                print(f"[P{pagina_actual}][{idx_fila+1}] ID:{numero_id} - {tipo_str[:40]}")
+                print(f"[P{pagina_actual}][{idx_fila + 1}] ID:{numero_id} - {tipo_str[:40]}")
 
                 if _descargar_fila(boton, numero_id, nombre_final, ruta_local, temp_download_path):
                     print(f"✅ {nombre_final}.pdf")
+
                     descargas_pagina += 1
                     descargas_totales += 1
+
                     numeros_ya_descargados.add(numero_id)
+                    nombres_ya_descargados.add(nombre_sin_id)
                 else:
                     print(f"⚠️ Timeout ID:{numero_id} → marcado para reintento")
+
                     fallidos.append({
                         "numero_id": numero_id,
                         "nombre_final": nombre_final,
@@ -670,99 +788,150 @@ def sincronizar_pdfs(driver, ruta_local, temp_download_path, fecha_desde=None, c
                         "pagina": pagina_actual,
                     })
 
+                idx_fila += 1
+
             except StaleElementReferenceException:
-                print(f"⚠️ Elemento viejo, reintentando página...")
-                break
+                print("⚠️ Elemento viejo, recargando tabla y filas...")
+                t_mod.sleep(1)
+
+                tabla_actuaciones = esperar_tabla_actuaciones(driver, timeout=15)
+                filas = tabla_actuaciones.find_elements(By.XPATH, ".//tbody/tr")
+                continue
+
             except Exception as e:
-                print(f"⚠️ Error fila {idx_fila+1}: {e}")
+                print(f"⚠️ Error fila {idx_fila + 1}: {e}")
+                idx_fila += 1
                 continue
 
         print(f"Descargados en página {pagina_actual}: {descargas_pagina}")
 
         try:
-            btn_sig = driver.find_element(
-                By.XPATH,
-                "//a[contains(text(), 'Sig') or contains(@class, 'next')][not(contains(@class, 'disabled'))]"
-            )
-            if btn_sig.is_enabled():
-                numeros_antes = set(numeros_pagina_actual)
-                driver.execute_script("arguments[0].click();", btn_sig)
-                pagina_actual += 1
-                time.sleep(2.5)
+            numeros_antes = set(numeros_pagina_actual)
+            btn_sig = _buscar_boton_siguiente()
 
-                filas_nuevas = driver.find_elements(By.XPATH, "//table//tbody/tr")
-                numeros_despues = set()
-                for f in filas_nuevas:
-                    try:
-                        celdas = f.find_elements(By.TAG_NAME, "td")
-                        num = celdas[idx_map['numero']].text.strip()
-                        if num.isdigit():
-                            numeros_despues.add(num)
-                    except:
-                        pass
-
-                if numeros_antes and numeros_despues and len(numeros_antes & numeros_despues) > len(numeros_antes) * 0.5:
-                    print(f"⚠️ LOOP detectado. Números repetidos. Cortando.")
-                    break
-            else:
-                print("🏁 Última página")
+            if not btn_sig:
+                print("🏁 No hay botón 'Siguiente'")
                 break
 
-        except NoSuchElementException:
-            print("🏁 No hay botón 'Siguiente'")
-            break
+            primer_id_antes = numeros_pagina_actual[0] if numeros_pagina_actual else None
+
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn_sig)
+            t_mod.sleep(0.4)
+            driver.execute_script("arguments[0].click();", btn_sig)
+
+            WebDriverWait(driver, 15).until(
+                lambda d: (
+                    len(d.find_elements(By.XPATH, "//table[contains(@class,'Grid')]//tbody/tr")) > 0
+                )
+            )
+
+            t_mod.sleep(2)
+
+            tabla_actuaciones = esperar_tabla_actuaciones(driver, timeout=20)
+            filas_nuevas = tabla_actuaciones.find_elements(By.XPATH, ".//tbody/tr")
+
+            numeros_despues = set()
+
+            for f in filas_nuevas:
+                try:
+                    celdas = f.find_elements(By.TAG_NAME, "td")
+
+                    if len(celdas) > idx_map["numero"]:
+                        num = celdas[idx_map["numero"]].text.strip()
+
+                        if num.isdigit():
+                            numeros_despues.add(num)
+                except Exception:
+                    pass
+
+            primer_id_despues = None
+
+            try:
+                if filas_nuevas:
+                    celdas_primera = filas_nuevas[0].find_elements(By.TAG_NAME, "td")
+                    if len(celdas_primera) > idx_map["numero"]:
+                        primer_id_despues = celdas_primera[idx_map["numero"]].text.strip()
+            except Exception:
+                pass
+
+            if primer_id_antes and primer_id_despues and primer_id_antes == primer_id_despues:
+                t_mod.sleep(2)
+                tabla_actuaciones = esperar_tabla_actuaciones(driver, timeout=20)
+                filas_nuevas = tabla_actuaciones.find_elements(By.XPATH, ".//tbody/tr")
+
+                try:
+                    celdas_primera = filas_nuevas[0].find_elements(By.TAG_NAME, "td")
+                    primer_id_despues = celdas_primera[idx_map["numero"]].text.strip()
+                except Exception:
+                    pass
+
+            if primer_id_antes and primer_id_despues and primer_id_antes == primer_id_despues:
+                print("⚠️ Se hizo click en 'Sig' pero la tabla no cambió. Cortando para evitar loop.")
+                break
+
+            pagina_actual += 1
+
+            print(f"➡️ Pasando a página {pagina_actual} - primeros IDs: {list(numeros_despues)[:3]}")
+
+            if (
+                numeros_antes
+                and numeros_despues
+                and len(numeros_antes & numeros_despues) > len(numeros_antes) * 0.5
+            ):
+                print("⚠️ LOOP detectado. Números repetidos. Cortando.")
+                break
+
         except Exception as e:
             print(f"⚠️ Error paginación: {e}")
             break
 
-    # ── REINTENTOS AL TERMINAR TODAS LAS PÁGINAS ────────────────────────
     if fallidos:
         print(f"\n🔁 REINTENTOS: {len(fallidos)} archivos pendientes...")
+
         exitosos_reintento = 0
         aun_fallidos = []
 
         for item in fallidos:
-            numero_id   = item["numero_id"]
+            numero_id = item["numero_id"]
             nombre_final = item["nombre_final"]
-            tipo_str    = item["tipo_str"]
+            tipo_str = item["tipo_str"]
             pagina_orig = item["pagina"]
 
-            print(f"  🔁 Reintentando ID:{numero_id} (página {pagina_orig})...")
-
-            # Buscar la fila en la tabla actual (puede que ya no estemos en esa página)
-            # Navegar a la página donde estaba ese ID
-            if not _ir_a_pagina(driver, pagina_orig):
-                # Fallback: recorrer desde página 1
-                driver.find_element(
-                    By.XPATH,
-                    "//a[contains(text(),'1') and contains(@class,'page')]"
-                ).click()
-                time.sleep(1.5)
+            print(f"  🔁 Reintentando ID:{numero_id} página {pagina_orig}...")
 
             try:
-                wait = WebDriverWait(driver, 10)
-                wait.until(EC.presence_of_element_located((By.XPATH, "//table//tbody/tr")))
-                time.sleep(0.8)
+                if not _ir_a_pagina(driver, pagina_orig):
+                    print(f"  ⚠️ No pude volver a página {pagina_orig}")
+                    aun_fallidos.append(item)
+                    continue
 
-                filas = driver.find_elements(By.XPATH, "//table//tbody/tr")
+                tabla_actuaciones = esperar_tabla_actuaciones(driver, timeout=15)
+                filas = tabla_actuaciones.find_elements(By.XPATH, ".//tbody/tr")
+
                 boton_encontrado = None
 
                 for fila in filas:
                     try:
                         celdas = fila.find_elements(By.TAG_NAME, "td")
-                        if len(celdas) <= idx_map['numero']:
+
+                        if len(celdas) <= idx_map["numero"]:
                             continue
-                        if celdas[idx_map['numero']].text.strip() == numero_id:
+
+                        if celdas[idx_map["numero"]].text.strip() == numero_id:
                             boton_encontrado = fila.find_element(By.XPATH, ".//a")
                             break
                     except Exception:
                         continue
 
                 if boton_encontrado and _descargar_fila(
-                    boton_encontrado, numero_id, nombre_final,
-                    ruta_local, temp_download_path
+                    boton_encontrado,
+                    numero_id,
+                    nombre_final,
+                    ruta_local,
+                    temp_download_path
                 ):
                     print(f"  ✅ Reintento exitoso: {nombre_final}.pdf")
+
                     exitosos_reintento += 1
                     descargas_totales += 1
                     numeros_ya_descargados.add(numero_id)
@@ -776,11 +945,11 @@ def sincronizar_pdfs(driver, ruta_local, temp_download_path, fecha_desde=None, c
 
         print(f"🔁 Reintentos: {exitosos_reintento} recuperados, {len(aun_fallidos)} sin resolver")
 
-        # ── REPORTE FINAL DE LO QUE NO SE PUDO DESCARGAR ────────────────
         if aun_fallidos:
-            print(f"\n{'='*60}")
-            print(f"⚠️  ARCHIVOS QUE REQUIEREN REVISIÓN MANUAL ({len(aun_fallidos)})")
-            print(f"{'='*60}")
+            print(f"\n{'=' * 60}")
+            print(f"⚠️ ARCHIVOS QUE REQUIEREN REVISIÓN MANUAL ({len(aun_fallidos)})")
+            print(f"{'=' * 60}")
+
             for item in aun_fallidos:
                 print(
                     f"  📄 Fecha: {item['fecha_iso']} | "
@@ -788,12 +957,17 @@ def sincronizar_pdfs(driver, ruta_local, temp_download_path, fecha_desde=None, c
                     f"ID: {item['numero_id']} | "
                     f"Página: {item['pagina']}"
                 )
-            print(f"{'='*60}")
-            print(f"  → Ingresá manualmente al expediente y verificá estos archivos.")
-            print(f"  → Puede ser que el servidor devuelva el PDF corrupto o vacío.")
-            print(f"{'='*60}\n")
 
-    print(f"\n⏱️ TOTAL: {t_mod.time()-t0:.1f}s - Descargados: {descargas_totales} PDFs en {pagina_actual} páginas")
+            print(f"{'=' * 60}")
+            print("  → Ingresá manualmente al expediente y verificá estos archivos.")
+            print("  → Puede ser que el servidor devuelva el PDF corrupto o vacío.")
+            print(f"{'=' * 60}\n")
+
+    print(
+        f"\n⏱️ TOTAL: {t_mod.time() - t0:.1f}s - "
+        f"Descargados: {descargas_totales} PDFs en {pagina_actual} páginas"
+    )
+
     return descargas_totales
 
 def _obtener_total_paginas(driver) -> int:

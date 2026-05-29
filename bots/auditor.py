@@ -5,7 +5,8 @@ import time
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from bots.forum_driver import crear_driver, login_forum, descargar_pdfs_nuevos, sincronizar_pdfs, buscar_expediente
+from bots.forum_driver import login_forum, descargar_pdfs_nuevos, sincronizar_pdfs, buscar_expediente
+from bots.driver_manager import get_driver, release_driver, is_logged_in, marcar_ocupado, marcar_libre
 from bots.actualizador import actualizar_estado_desde_tabla, _entrar_a_expediente_actualizador
 from database.models import db, CausaInfo, Usuario
 import config
@@ -28,23 +29,20 @@ def parsear_lista_expedientes(texto):
     ]
 
     def _normalizar_localidad(texto_loc):
-        """Busca la localidad más parecida en la lista válida."""
         texto_loc = texto_loc.strip().title()
         for loc in LOCALIDADES_VALIDAS:
             if loc.upper() == texto_loc.upper():
                 return loc
-        # Búsqueda parcial
         for loc in LOCALIDADES_VALIDAS:
             if texto_loc.upper() in loc.upper() or loc.upper() in texto_loc.upper():
                 return loc
-        return 'Capital'  # fallback
+        return 'Capital'
 
     for linea in lineas:
         linea_orig = linea.strip()
         if not linea_orig:
             continue
 
-        # Separar localidad si viene con " - "
         localidad = 'Capital'
         if ' - ' in linea_orig:
             partes_loc = linea_orig.rsplit(' - ', 1)
@@ -87,10 +85,6 @@ def parsear_lista_expedientes(texto):
 
 
 def ejecutar_auditoria(usuario_id, usuario_nombre, socketio, app, lista_texto, modo):
-    """
-    modo: 'ultimo'  → descargar_pdfs_nuevos  (igual que ACTUALIZAR)
-          'completo' → sincronizar_pdfs       (igual que SINCRONIZAR)
-    """
     expedientes = parsear_lista_expedientes(lista_texto)
 
     if not expedientes:
@@ -103,7 +97,8 @@ def ejecutar_auditoria(usuario_id, usuario_nombre, socketio, app, lista_texto, m
         forum_user = usuario.forum_user
         forum_pass = usuario.forum_pass
 
-    driver = crear_driver(temp_download_path=config.TEMP_DOWNLOAD_PATH)
+    driver = get_driver(temp_download_path=config.TEMP_DOWNLOAD_PATH)
+    marcar_ocupado()
     t0 = time.time()
 
     total            = len(expedientes)
@@ -115,13 +110,16 @@ def ejecutar_auditoria(usuario_id, usuario_nombre, socketio, app, lista_texto, m
 
     try:
         socketio.emit('bot_status', {'msg': f'🔎 AUDITORÍA — {total} expedientes — Modo: {modo_label}', 'progreso': 5})
-        socketio.emit('bot_status', {'msg': '⚠️ Resolvé el Captcha e iniciá sesión', 'progreso': 10})
 
-        if not login_forum(driver, forum_user, forum_pass):
-            socketio.emit('bot_error', {'msg': '❌ No se pudo hacer login'})
-            return
+        if not is_logged_in():
+            socketio.emit('bot_status', {'msg': '⚠️ Resolvé el Captcha e iniciá sesión', 'progreso': 10})
+            if not login_forum(driver, forum_user, forum_pass):
+                socketio.emit('bot_error', {'msg': '❌ No se pudo hacer login'})
+                return
+        else:
+            socketio.emit('bot_status', {'msg': '✅ Sesión activa, reutilizando...', 'progreso': 15})
 
-        socketio.emit('bot_status', {'msg': '✅ Login exitoso. Iniciando auditoría...', 'progreso': 15})
+        socketio.emit('bot_status', {'msg': '✅ Iniciando auditoría...', 'progreso': 15})
 
         for idx, exp in enumerate(expedientes):
             nro_completo = exp["nro_completo"]
@@ -135,7 +133,6 @@ def ejecutar_auditoria(usuario_id, usuario_nombre, socketio, app, lista_texto, m
                 'progreso': progreso
             })
 
-            # ── Buscar datos del expediente (carátula, juzgado) ──
             with app.app_context():
                 causa = None
                 if tipo_code:
@@ -150,20 +147,18 @@ def ejecutar_auditoria(usuario_id, usuario_nombre, socketio, app, lista_texto, m
                         CausaInfo.usuario_id == usuario_id
                     ).first()
 
-            # Si no está en DB, buscar en Forum para obtener datos
             localidad = exp.get("localidad", "Capital")
             if not causa:
                 socketio.emit('bot_status', {'msg': f'🔍 {label} no está en DB, buscando en Forum...'})
-                localidad = exp.get("localidad", "Capital")
                 datos = buscar_expediente(driver, nro_solo, tipo_codigo=tipo_code or None, localidad=localidad)
                 if not datos:
                     socketio.emit('bot_status', {'msg': f'⚠️ {label}: no encontrado en Forum, saltando...'})
                     no_encontrados += 1
                     continue
 
-                juzgado   = datos['juzgado']
+                juzgado    = datos['juzgado']
                 secretaria = datos.get('secretaria', 'SECRETARIA UNICA')
-                caratula  = datos['caratula']
+                caratula   = datos['caratula']
 
                 ruta = os.path.join(
                     "expedientes_clientes", usuario_nombre,
@@ -188,8 +183,8 @@ def ejecutar_auditoria(usuario_id, usuario_nombre, socketio, app, lista_texto, m
                 socketio.emit('bot_status', {'msg': f'🆕 {label}: creado en DB — {caratula[:50]}'})
 
             else:
-                causa_id  = causa.id
-                juzgado   = causa.juzgado
+                causa_id   = causa.id
+                juzgado    = causa.juzgado
                 secretaria = causa.secretaria or "SECRETARIA UNICA"
                 ruta = os.path.join(
                     "expedientes_clientes", usuario_nombre,
@@ -197,16 +192,13 @@ def ejecutar_auditoria(usuario_id, usuario_nombre, socketio, app, lista_texto, m
                 )
                 os.makedirs(ruta, exist_ok=True)
 
-            # ── Entrar al expediente ──
             if not _entrar_a_expediente_actualizador(driver, nro_completo, tipo_codigo=tipo_code or None, localidad=localidad):
                 socketio.emit('bot_status', {'msg': f'⚠️ {label}: no se pudo entrar, saltando...'})
                 no_encontrados += 1
                 continue
 
-            # ── Actualizar estado ──
             actualizar_estado_desde_tabla(driver, causa_id, app, socketio)
 
-            # ── Descargar según modo ──
             if modo == 'completo':
                 nuevos = sincronizar_pdfs(driver, ruta, config.TEMP_DOWNLOAD_PATH)
                 socketio.emit('bot_status', {
@@ -224,7 +216,6 @@ def ejecutar_auditoria(usuario_id, usuario_nombre, socketio, app, lista_texto, m
             procesados += 1
             driver.switch_to.default_content()
 
-        # ── Resumen ──
         tiempo_total = int(time.time() - t0)
         mins = tiempo_total // 60
         segs = tiempo_total % 60
@@ -246,4 +237,5 @@ def ejecutar_auditoria(usuario_id, usuario_nombre, socketio, app, lista_texto, m
         traceback.print_exc()
         socketio.emit('bot_status', {'msg': f'❌ Error crítico: {str(e)}'})
     finally:
-        driver.quit()
+        marcar_libre()
+        release_driver()

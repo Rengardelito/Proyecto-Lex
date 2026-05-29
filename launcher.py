@@ -450,13 +450,48 @@ class AutoUpdater:
         shutil.rmtree(zip_path.parent, ignore_errors=True)
 
         if success:
+
             self.splash.set_status(f"✓ Actualizado a v{new_version}", 100)
             time.sleep(1)
-            messagebox.showinfo(
-                "Actualización completada",
-                f"LexView Pro se actualizó a v{new_version}.\nLa aplicación se reiniciará."
+
+            # ── Crear BAT de actualización ───────────────────────
+            bat_path = self.base_dir / "update.bat"
+
+            bat_content = r'''@echo off
+
+        timeout /t 3 /nobreak >nul
+
+        taskkill /F /IM LexViewPro.exe >nul 2>&1
+
+        xcopy "%~dp0temp_update\*" "%~dp0" /E /Y /I
+
+        start "" "%~dp0LexViewPro.exe"
+
+        del "%~f0"
+        '''
+
+            bat_path.write_text(bat_content, encoding="ascii")
+
+            # ── Extraer ZIP a temp_update ────────────────────────
+            temp_update = self.base_dir / "temp_update"
+
+            if temp_update.exists():
+                shutil.rmtree(temp_update, ignore_errors=True)
+
+            temp_update.mkdir(exist_ok=True)
+
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(temp_update)
+
+            # ── Ejecutar BAT ─────────────────────────────────────
+            subprocess.Popen(
+                ["cmd", "/c", str(bat_path)],
+                cwd=str(self.base_dir)
             )
-            return True
+
+            # ── Cerrar launcher actual ───────────────────────────
+            self.splash.close()
+            sys.exit(0)
         else:
             messagebox.showerror(
                 "Error en la actualización",
@@ -560,8 +595,8 @@ def main():
 
     if updated:
         # Relanzar el exe para que tome los nuevos archivos
-        splash.close()
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        # splash.close()
+        # os.execv(sys.executable, [sys.executable] + sys.argv)
         return  # nunca llega acá
 
     # ── Lanzar Flask ─────────────────────────────────────────

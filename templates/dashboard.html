@@ -624,35 +624,60 @@ socket.on('bot_finished', function() {
         function iniciarSincronizador() { if(confirm('¿Iniciar sincronización?')) { document.getElementById('monitor-proceso').style.display='block'; fetch('/run_sincronizador',{method:'POST'}); } }
         function iniciarImportacion()   { if(confirm('¿Procesar IMPORTAR_AQUI?')) { document.getElementById('monitor-proceso').style.display='block'; fetch('/importar_legado',{method:'POST'}); } }
 
-        function iniciarActualizador() {
+       function iniciarActualizador() {
             var hoy = new Date().toISOString().split('T')[0];
             var esTrial = (PLAN === 'trial');
             var modal = document.createElement('div');
             modal.id = 'modal-actualizador';
             modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;';
+            
             var fechaHtml = esTrial ? '' :
                 '<label style="font-size:0.62rem;color:var(--text);letter-spacing:1px;display:block;margin-bottom:5px;">FECHA DE LISTA</label>' +
-                '<input type="date" id="modal-fecha-notif" value="'+hoy+'" style="width:100%;background:var(--bg);border:1px solid var(--border2);color:var(--text-bright);border-radius:5px;padding:8px 10px;font-size:0.8rem;font-family:var(--mono);outline:none;margin-bottom:20px;">';
+                '<input type="date" id="modal-fecha-notif" value="'+hoy+'" style="width:100%;background:var(--bg);border:1px solid var(--border2);color:var(--text-bright);border-radius:5px;padding:8px 10px;font-size:0.8rem;font-family:var(--mono);outline:none;margin-bottom:16px;">';
+            
             var subtitulo = esTrial
                 ? '<span style="color:#ffab00;">⚠️ MODO TRIAL — máximo 5 expedientes</span>'
                 : '¿Querés usar una fecha diferente?';
+            
             modal.innerHTML =
-                '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:28px;width:360px;font-family:var(--mono);">' +
+                '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:28px;width:380px;font-family:var(--mono);">' +
                 '<div style="color:var(--blue);font-size:0.85rem;font-weight:700;margin-bottom:6px;">🔔 ACTUALIZAR NOTIFICACIONES</div>' +
                 '<div style="color:var(--text);font-size:0.72rem;margin-bottom:20px;line-height:1.6;">'+subtitulo+'</div>' +
                 fechaHtml +
+                '<label style="font-size:0.62rem;color:var(--text);letter-spacing:1px;display:block;margin-bottom:5px;">MATRÍCULA</label>' +
+                '<div style="display:flex;gap:8px;margin-bottom:20px;">' +
+                '<input type="radio" name="mat-opt" id="mat-default" value="default" checked style="margin-top:3px;">' +
+                '<label for="mat-default" style="font-size:0.72rem;color:var(--text-bright);cursor:pointer;flex:1;">Usar matrícula del perfil <span id="mat-label" style="color:var(--blue);font-family:var(--mono);">...</span></label>' +
+                '</div>' +
+                '<div style="display:flex;gap:8px;margin-bottom:20px;">' +
+                '<input type="radio" name="mat-opt" id="mat-custom" value="custom" style="margin-top:3px;">' +
+                '<label for="mat-custom" style="font-size:0.72rem;color:var(--text-bright);cursor:pointer;">Otra matrícula:</label>' +
+                '<input type="text" id="mat-custom-val" placeholder="ej: 3232" style="flex:1;background:var(--bg);border:1px solid var(--border2);color:var(--text-bright);border-radius:5px;padding:4px 8px;font-size:0.78rem;font-family:var(--mono);outline:none;" onclick="document.getElementById(\'mat-custom\').checked=true;">' +
+                '</div>' +
                 '<div style="display:flex;gap:10px;">' +
                 '<button onclick="document.body.removeChild(document.getElementById(\'modal-actualizador\'))" style="flex:1;padding:9px;background:transparent;border:1px solid var(--border2);color:var(--text);border-radius:5px;cursor:pointer;font-size:0.75rem;font-family:var(--mono);">CANCELAR</button>' +
                 '<button id="modal-btn-confirmar" style="flex:2;padding:9px;background:var(--blue);border:none;color:#fff;border-radius:5px;cursor:pointer;font-size:0.75rem;font-weight:700;font-family:var(--mono);">BUSCAR NOTIFICACIONES</button>' +
                 '</div></div>';
+            
             document.body.appendChild(modal);
+
+            // Cargar matrícula del perfil
+            fetch('/api/mi_matricula').then(r=>r.json()).then(d=>{
+                document.getElementById('mat-label').textContent = d.matricula || '(sin matrícula)';
+            });
+
             document.getElementById('modal-btn-confirmar').onclick = function() {
                 var fechaInput = document.getElementById('modal-fecha-notif');
                 var fecha = (esTrial || !fechaInput) ? hoy : fechaInput.value;
+                var usaCustom = document.getElementById('mat-custom').checked;
+                var matriculaCustom = document.getElementById('mat-custom-val').value.trim();
                 document.body.removeChild(document.getElementById('modal-actualizador'));
                 document.getElementById('monitor-proceso').style.display = 'block';
                 var fd = new FormData();
                 fd.append('fecha', fecha);
+                if (usaCustom && matriculaCustom) {
+                    fd.append('matricula_override', matriculaCustom);
+                }
                 fetch('/run_actualizador', {method:'POST', body:fd});
             };
         }

@@ -4,7 +4,8 @@ import re
 import time
 import shutil
 from datetime import datetime
-from bots.forum_driver import crear_driver, login_forum, entrar_a_expediente, sincronizar_pdfs
+from bots.forum_driver import login_forum, entrar_a_expediente, sincronizar_pdfs
+from bots.driver_manager import get_driver, release_driver, is_logged_in, marcar_ocupado, marcar_libre
 from database.models import db, CausaInfo
 import config
 
@@ -64,7 +65,9 @@ def ejecutar_sincronizacion(usuario_id, usuario_nombre, socketio, app, max_expte
         forum_user = usuario.forum_user
         forum_pass = usuario.forum_pass
 
-    driver = crear_driver(temp_download_path=config.TEMP_DOWNLOAD_PATH)
+    driver = get_driver(temp_download_path=config.TEMP_DOWNLOAD_PATH)
+    marcar_ocupado()
+
     t0 = time.time()
 
     exptes_sincronizados = 0
@@ -73,17 +76,21 @@ def ejecutar_sincronizacion(usuario_id, usuario_nombre, socketio, app, max_expte
     exptes_no_encontrados = 0
 
     try:
-        socketio.emit('bot_status', {'msg': '🔑 Abriendo Forum...', 'progreso': 5})
-        socketio.emit('bot_status', {'msg': '⚠️ Resolvé el Captcha e iniciá sesión', 'progreso': 10})
+        if not is_logged_in():
+            socketio.emit('bot_status', {'msg': '🔑 Abriendo Forum...', 'progreso': 5})
+            socketio.emit('bot_status', {'msg': '⚠️ Resolvé el Captcha e iniciá sesión', 'progreso': 10})
+            if not login_forum(driver, forum_user, forum_pass):
+                socketio.emit('bot_status', {'msg': '❌ No se pudo hacer login'})
+                return
+        else:
+            # ✅ Limpiamos temp_downloads al inicio
+            _limpiar_temp(socketio)
+            socketio.emit('bot_status', {'msg': '✅ Sesión activa, reutilizando...', 'progreso': 10})
+        
 
-        if not login_forum(driver, forum_user, forum_pass):
-            socketio.emit('bot_status', {'msg': '❌ No se pudo hacer login'})
-            return
+        
 
-        # ✅ Limpiamos temp_downloads al inicio
-        _limpiar_temp(socketio)
-
-        socketio.emit('bot_status', {'msg': '🚀 Sesión iniciada. Buscando expedientes...', 'progreso': 20})
+       
 
         with app.app_context():
             causas = CausaInfo.query.filter_by(usuario_id=usuario_id).all()
@@ -165,7 +172,8 @@ def ejecutar_sincronizacion(usuario_id, usuario_nombre, socketio, app, max_expte
         traceback.print_exc()
         socketio.emit('bot_status', {'msg': f'❌ Error crítico: {str(e)}'})
     finally:
-        driver.quit()
+        marcar_libre()
+        release_driver()
 
 def ejecutar_completar_historial(usuario_id, usuario_nombre, socketio, app, max_exptes=None, lista_exptes=None):
     """
@@ -174,11 +182,7 @@ def ejecutar_completar_historial(usuario_id, usuario_nombre, socketio, app, max_
     Ideal para abogados que solo tienen la última actuación descargada.
     Si lista_exptes viene del actualizador, usa esa lista en lugar de toda la DB.
     """
-    from bots.forum_driver import (
-        crear_driver, login_forum, entrar_a_expediente,
-        sincronizar_pdfs
-    )
-    import os, config, time
+    
     from database.models import db, CausaInfo
 
     with app.app_context():
@@ -187,7 +191,7 @@ def ejecutar_completar_historial(usuario_id, usuario_nombre, socketio, app, max_
         forum_user = usuario.forum_user
         forum_pass = usuario.forum_pass
 
-    driver = crear_driver(temp_download_path=config.TEMP_DOWNLOAD_PATH)
+    driver = get_driver(temp_download_path=config.TEMP_DOWNLOAD_PATH)
     t0 = time.time()
 
     exptes_procesados     = 0
@@ -199,11 +203,14 @@ def ejecutar_completar_historial(usuario_id, usuario_nombre, socketio, app, max_
         socketio.emit('bot_status', {'msg': '🔑 Abriendo Forum...', 'progreso': 5})
         socketio.emit('bot_status', {'msg': '⚠️ Resolvé el Captcha e iniciá sesión', 'progreso': 10})
 
-        if not login_forum(driver, forum_user, forum_pass):
-            socketio.emit('bot_status', {'msg': '❌ No se pudo hacer login'})
-            return
-
-        socketio.emit('bot_status', {'msg': '🚀 Sesión iniciada. Completando historial...', 'progreso': 20})
+        if not is_logged_in():
+            socketio.emit('bot_status', {'msg': '🔑 Abriendo Forum...', 'progreso': 5})
+            socketio.emit('bot_status', {'msg': '⚠️ Resolvé el Captcha e iniciá sesión', 'progreso': 10})
+            if not login_forum(driver, forum_user, forum_pass):
+                socketio.emit('bot_status', {'msg': '❌ No se pudo hacer login'})
+                return
+        else:
+            socketio.emit('bot_status', {'msg': '✅ Sesión activa, reutilizando...', 'progreso': 10})
 
         # ── Armar lista de causas ─────────────────────────────────────────────
         if lista_exptes:
@@ -339,4 +346,4 @@ def ejecutar_completar_historial(usuario_id, usuario_nombre, socketio, app, max_
         traceback.print_exc()
         socketio.emit('bot_status', {'msg': f'❌ Error crítico: {str(e)}'})
     finally:
-        driver.quit()
+        release_driver()

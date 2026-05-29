@@ -436,23 +436,21 @@ def run_actualizador():
     u_id      = current_user.id
     u_name    = current_user.username
     fecha_str = request.form.get('fecha')
+    matricula_override = request.form.get('matricula_override')
     max_exptes = max_exptes_trial(current_user)
     def hilo():
         with app.app_context():
             from bots.actualizador import ejecutar_actualizacion
-            # ── MODO DEBUG: lista fija ────────────────────────────────────
-            import unittest.mock as mock
-            expedientes_debug = [
-                {"tipo": "CXP", "nro": "20544-25", "juzgado": "CURUZU CUATIA - JUZGADO CIVIL, COMERCIAL Y LABORAL", "secretaria": "SECRETARIA UNICA", "localidad": "Curuzú Cuatiá", "fecha_lista": ""},
-                {"tipo": "I02", "nro": "10054-4",  "juzgado": "JUZG. CIVIL, COMERCIAL Y LABORAL", "secretaria": "SECRETARIA UNICA", "localidad": "Monte Caseros", "fecha_lista": ""},
-                {"tipo": "MXP", "nro": "10054-19", "juzgado": "JUZG. CIVIL, COMERCIAL Y LABORAL", "secretaria": "SECRETARIA UNICA", "localidad": "Monte Caseros", "fecha_lista": ""},
-            ]
-            with mock.patch('bots.actualizador.obtener_expedientes_con_movimiento', return_value=expedientes_debug):
-                ejecutar_actualizacion(u_id, u_name, socketio, app, fecha_str=fecha_str, max_exptes=max_exptes)
-            # ── FIN MODO DEBUG ────────────────────────────────────────────
+            ejecutar_actualizacion(u_id, u_name, socketio, app, fecha_str=fecha_str, max_exptes=max_exptes, matricula_override=matricula_override)
     threading.Thread(target=hilo, daemon=True).start()
     return jsonify({"success": True})
 
+
+
+@app.route('/api/mi_matricula')
+@login_required
+def mi_matricula():
+    return jsonify({'matricula': current_user.matricula or ''})
 
 @app.route('/run_sincronizador', methods=['POST'])
 @login_required

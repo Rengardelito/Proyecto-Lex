@@ -1,7 +1,8 @@
 # bots/recuperador.py
 import time
 from database.models import db, CausaInfo, Usuario
-from bots.forum_driver import crear_driver, login_forum, buscar_expediente
+from bots.forum_driver import login_forum, buscar_expediente
+from bots.driver_manager import get_driver, release_driver, is_logged_in, marcar_ocupado, marcar_libre
 import config
 
 LOCALIDADES_PROVINCIAL = [
@@ -22,29 +23,27 @@ def _localidad_en_nombre(juzgado):
     return None
 
 def ejecutar_recuperar_caratulas(usuario_id, usuario_nombre, localidades_mapa, socketio, app):
-    """
-    Recorre todos los expedientes SIN CARATULAR y busca la carátula en Fórumna.
-    localidades_mapa: {juzgado: localidad} para juzgados ambiguos
-    """
     with app.app_context():
-        usuario = db.session.get(Usuario, usuario_id)
+        usuario    = db.session.get(Usuario, usuario_id)
         forum_user = usuario.forum_user
         forum_pass = usuario.forum_pass
 
-    driver = crear_driver(temp_download_path=config.TEMP_DOWNLOAD_PATH)
+    driver = get_driver(temp_download_path=config.TEMP_DOWNLOAD_PATH)
+    marcar_ocupado()
     t0 = time.time()
-    actualizados = 0
+    actualizados   = 0
     no_encontrados = 0
 
     try:
-        socketio.emit('bot_status', {'msg': '🔑 Abriendo Fórumna...'})
-        socketio.emit('bot_status', {'msg': '⚠️ Resolvé el captcha e iniciá sesión'})
+        if not is_logged_in():
+            socketio.emit('bot_status', {'msg': '⚠️ Resolvé el captcha e iniciá sesión'})
+            if not login_forum(driver, forum_user, forum_pass):
+                socketio.emit('bot_status', {'msg': '❌ No se pudo hacer login'})
+                return
+        else:
+            socketio.emit('bot_status', {'msg': '✅ Sesión activa, reutilizando...'})
 
-        if not login_forum(driver, forum_user, forum_pass):
-            socketio.emit('bot_status', {'msg': '❌ No se pudo hacer login'})
-            return
-
-        socketio.emit('bot_status', {'msg': '✅ Login exitoso. Buscando carátulas...'})
+        socketio.emit('bot_status', {'msg': '✅ Buscando carátulas...'})
 
         with app.app_context():
             causas = CausaInfo.query.filter(
@@ -64,7 +63,6 @@ def ejecutar_recuperar_caratulas(usuario_id, usuario_nombre, localidades_mapa, s
             juzgado  = causa['juzgado']
             progreso = int(((idx + 1) / total) * 100)
 
-            # Determinar localidad
             localidad = localidades_mapa.get(juzgado)
             if not localidad:
                 localidad = _localidad_en_nombre(juzgado) or 'Capital'
@@ -109,4 +107,5 @@ def ejecutar_recuperar_caratulas(usuario_id, usuario_nombre, localidades_mapa, s
         traceback.print_exc()
         socketio.emit('bot_status', {'msg': f'❌ Error: {str(e)}'})
     finally:
-        driver.quit()
+        marcar_libre()
+        release_driver()

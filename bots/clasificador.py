@@ -1,15 +1,14 @@
 # bots/clasificador.py
-
 import os
 import re
 import time
 import shutil
-from bots.forum_driver import crear_driver, login_forum, buscar_expediente
+from bots.forum_driver import login_forum, buscar_expediente
+from bots.driver_manager import get_driver, release_driver, is_logged_in, marcar_ocupado, marcar_libre
 from database.models import db, CausaInfo
 
 
 def _limpiar_huerfanos(usuario_id, usuario_nombre, app, socketio):
-    """Elimina de la DB los registros que no tienen carpeta física."""
     with app.app_context():
         registros = CausaInfo.query.filter_by(usuario_id=usuario_id).all()
         ruta_base = os.path.join(os.getcwd(), 'expedientes_clientes', usuario_nombre)
@@ -31,29 +30,32 @@ def _limpiar_huerfanos(usuario_id, usuario_nombre, app, socketio):
 
 
 def ejecutar_clasificacion(usuario_id, usuario_nombre, socketio, app):
-    # Obtener credenciales del usuario desde la DB
     with app.app_context():
         from database.models import Usuario
         usuario = db.session.get(Usuario, usuario_id)
         forum_user = usuario.forum_user
         forum_pass = usuario.forum_pass
-    driver = crear_driver()
+
+    driver = get_driver(temp_download_path=None)
+    marcar_ocupado()
     t0 = time.time()
 
-    # Contadores
-    clasificados = 0
+    clasificados   = 0
     no_encontrados = 0
-    errores = 0
+    errores        = 0
 
     try:
-        socketio.emit('bot_status', {'msg': '🔑 Abriendo Forum...', 'progreso': 5})
-        socketio.emit('bot_status', {'msg': '⚠️ Resolvé el Captcha e iniciá sesión', 'progreso': 10})
+        socketio.emit('bot_status', {'msg': '🔑 Obteniendo driver...', 'progreso': 5})
 
-        if not login_forum(driver, forum_user, forum_pass):
-            socketio.emit('bot_error', {'msg': '❌ No se pudo hacer login en Forum'})
-            return
+        if not is_logged_in():
+            socketio.emit('bot_status', {'msg': '⚠️ Resolvé el Captcha e iniciá sesión', 'progreso': 10})
+            if not login_forum(driver, forum_user, forum_pass):
+                socketio.emit('bot_error', {'msg': '❌ No se pudo hacer login en Forum'})
+                return
+        else:
+            socketio.emit('bot_status', {'msg': '✅ Sesión activa, reutilizando...', 'progreso': 10})
 
-        ruta_base = os.path.join(os.getcwd(), 'expedientes_clientes', usuario_nombre)
+        ruta_base      = os.path.join(os.getcwd(), 'expedientes_clientes', usuario_nombre)
         ruta_importados = os.path.join(ruta_base, 'IMPORTADOS')
 
         if not os.path.exists(ruta_importados):
@@ -68,8 +70,8 @@ def ejecutar_clasificacion(usuario_id, usuario_nombre, socketio, app):
         socketio.emit('bot_log', {'log': [f'📁 {total} carpetas para clasificar.']})
 
         for idx, nombre_folder in enumerate(carpetas):
-            juz_final = "POR CLASIFICAR"
-            sec_final = "REVISAR"
+            juz_final       = "POR CLASIFICAR"
+            sec_final       = "REVISAR"
             demandado_final = "CARATULA NO ENCONTRADA"
 
             parte_nro = nombre_folder.split(' _ ')[0] if ' _ ' in nombre_folder else nombre_folder
@@ -81,7 +83,6 @@ def ejecutar_clasificacion(usuario_id, usuario_nombre, socketio, app):
                 continue
 
             nro_solo = match.group(1)
-
             progreso = int(((idx + 1) / total) * 85) + 10
             socketio.emit('bot_status', {
                 'msg': f'⚖️ Clasificando: {nro_solo} ({idx+1}/{total})',
@@ -90,10 +91,10 @@ def ejecutar_clasificacion(usuario_id, usuario_nombre, socketio, app):
 
             datos = buscar_expediente(driver, nro_solo)
             if datos:
-                juz_final = datos['juzgado']
-                sec_final = datos['secretaria']
+                juz_final       = datos['juzgado']
+                sec_final       = datos['secretaria']
                 demandado_final = datos['caratula']
-                nro_completo = datos.get('nro_completo', nro_solo)
+                nro_completo    = datos.get('nro_completo', nro_solo)
                 socketio.emit('bot_log', {'log': [f'✅ {nro_completo} → {juz_final}']})
                 clasificados += 1
             else:
@@ -133,7 +134,6 @@ def ejecutar_clasificacion(usuario_id, usuario_nombre, socketio, app):
                 socketio.emit('bot_log', {'log': [f'💥 Error en DB para {nro_solo}: {str(e)}']})
                 errores += 1
 
-        # ✅ RESUMEN FINAL
         tiempo_total = int(time.time() - t0)
         mins = tiempo_total // 60
         segs = tiempo_total % 60
@@ -141,7 +141,7 @@ def ejecutar_clasificacion(usuario_id, usuario_nombre, socketio, app):
 
         socketio.emit('bot_status', {'msg': '✅ Clasificación finalizada', 'progreso': 100})
         socketio.emit('bot_log', {'log': ['━' * 40]})
-        socketio.emit('bot_log', {'log': [f'📊 RESUMEN CLASIFICACIÓN']})
+        socketio.emit('bot_log', {'log': ['📊 RESUMEN CLASIFICACIÓN']})
         socketio.emit('bot_log', {'log': [f'✅ Clasificados correctamente: {clasificados}']})
         socketio.emit('bot_log', {'log': [f'❌ No encontrados en Forum: {no_encontrados}']})
         if errores > 0:
@@ -155,4 +155,5 @@ def ejecutar_clasificacion(usuario_id, usuario_nombre, socketio, app):
         traceback.print_exc()
         socketio.emit('bot_error', {'msg': f'❌ Error crítico: {str(e)}'})
     finally:
-        driver.quit()
+        marcar_libre()
+        release_driver()

@@ -10,7 +10,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 
-from bots.forum_driver import crear_driver, login_forum, descargar_pdfs_nuevos, buscar_expediente
+from bots.forum_driver import login_forum, descargar_pdfs_nuevos, buscar_expediente
+from bots.driver_manager import get_driver, release_driver, is_logged_in, marcar_ocupado, marcar_libre
 from database.models import db, CausaInfo, Usuario
 import config
 
@@ -801,8 +802,7 @@ def _entrar_a_expediente_actualizador(driver, nro_expte, tipo_codigo=None, local
 # ══════════════════════════════════════════════════════════════════════════════
 # EJECUCIÓN PRINCIPAL
 # ══════════════════════════════════════════════════════════════════════════════
-
-def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=None, max_exptes=None):
+def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=None, max_exptes=None, matricula_override=None):
     try:
         socketio.emit('bot_status', {'msg': '🔧 Iniciando...'})
         print("[DEBUG] ejecutar_actualizacion arrancó")
@@ -810,15 +810,16 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
         print(f"[DEBUG] fecha recibida: '{fecha_str}'")
 
         with app.app_context():
-            usuario    = db.session.get(Usuario, usuario_id)
-            forum_user = usuario.forum_user
-            forum_pass = usuario.forum_pass
-            matricula  = usuario.matricula if usuario.matricula else ""
-            alcance    = usuario.alcance or 'capital'
+         usuario    = db.session.get(Usuario, usuario_id)
+        forum_user = usuario.forum_user
+        forum_pass = usuario.forum_pass
+        matricula  = matricula_override if matricula_override else (usuario.matricula if usuario.matricula else "")
+        alcance    = usuario.alcance or 'capital'
 
-        socketio.emit('bot_status', {'msg': '🌐 Abriendo Chrome...'})
-        driver = crear_driver(temp_download_path=config.TEMP_DOWNLOAD_PATH)
-        socketio.emit('bot_status', {'msg': '✅ Chrome abierto'})
+        socketio.emit('bot_status', {'msg': '🌐 Obteniendo Chrome...'})
+        driver = get_driver(temp_download_path=config.TEMP_DOWNLOAD_PATH)
+        marcar_ocupado()
+        socketio.emit('bot_status', {'msg': '✅ Chrome listo'})
 
     except Exception as e:
         import traceback
@@ -835,17 +836,22 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
     pdfs_descargados    = 0
     exptes_sin_pdfs     = 0
 
+
+    
+
     # ── Acumulador para el PDF resumen (Mejora 1) ────────────────────────────
     # Cada entrada: {"nro", "tipo", "caratula", "juzgado", "paths": [...]}
     acumulador_pdfs: list[dict] = []
 
     try:
-        socketio.emit('bot_status', {'msg': '🔑 Abriendo Forum...', 'progreso': 5})
-        socketio.emit('bot_status', {'msg': '⚠️ Resolvé el Captcha e iniciá sesión', 'progreso': 10})
-
-        if not login_forum(driver, forum_user, forum_pass):
-            socketio.emit('bot_error', {'msg': '❌ No se pudo hacer login'})
-            return
+        if not is_logged_in():
+            socketio.emit('bot_status', {'msg': '🔑 Abriendo Forum...', 'progreso': 5})
+            socketio.emit('bot_status', {'msg': '⚠️ Resolvé el Captcha e iniciá sesión', 'progreso': 10})
+            if not login_forum(driver, forum_user, forum_pass):
+                socketio.emit('bot_status', {'msg': '❌ No se pudo hacer login'})
+                return
+        else:
+            socketio.emit('bot_status', {'msg': '✅ Sesión activa, reutilizando...', 'progreso': 10})
 
         expedientes = obtener_expedientes_con_movimiento(
          driver, matricula, socketio, fecha=fecha_str, alcance=usuario.alcance or 'capital'
@@ -1138,7 +1144,8 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
         traceback.print_exc()
         socketio.emit('bot_status', {'msg': f'❌ Error crítico: {str(e)}'})
     finally:
-        driver.quit()
+        marcar_libre()
+        release_driver()
 
 
 # ── Helper interno ───────────────────────────────────────────────────────────
