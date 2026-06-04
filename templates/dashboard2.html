@@ -43,6 +43,140 @@
         .nav-user a { color: var(--red); text-decoration: none; }
         .plan-badge { padding: 2px 8px; border-radius: 20px; font-size: 0.62rem; font-weight: 700; font-family: var(--mono); letter-spacing: 1px; margin-left: 6px; }
 
+
+
+        /* ═══════════════════════════════════════════════════════════════
+           DASHBOARD V2 — NAV LIMPIO + MENÚ DE ACCIONES
+           Mantiene todas las funciones existentes, solo redistribuye UI.
+        ═══════════════════════════════════════════════════════════════ */
+        .nav-v2 { gap: 12px; }
+        .nav-v2 .search-wrap { max-width: 520px; }
+        .nav-actions-wrap { position: relative; }
+        .btn-actions-main {
+            background: linear-gradient(135deg, #1f6feb, #6f42c1);
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.12) !important;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.28);
+        }
+        .actions-menu {
+            display: none;
+            position: absolute;
+            top: 42px;
+            right: 0;
+            width: 290px;
+            background: #0b1017;
+            border: 1px solid var(--border2);
+            border-radius: 12px;
+            padding: 10px;
+            z-index: 3000;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.55);
+        }
+        .actions-menu.open { display: block; }
+        .actions-menu-title {
+            font-family: var(--mono);
+            font-size: 0.62rem;
+            color: var(--text-dim);
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+            padding: 6px 8px 10px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 8px;
+        }
+        .action-item {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text);
+            padding: 10px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: left;
+            font-size: 0.76rem;
+            font-family: var(--sans);
+            transition: background .12s, border-color .12s, color .12s;
+        }
+        .action-item:hover {
+            background: var(--surface2);
+            border-color: var(--border2);
+            color: var(--text-bright);
+        }
+        .action-item strong { font-weight: 700; }
+        .action-item small {
+            display: block;
+            margin-top: 2px;
+            color: var(--text-dim);
+            font-size: 0.63rem;
+            line-height: 1.25;
+        }
+        .action-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            flex-shrink: 0;
+        }
+        .dot-purple { background: var(--purple); }
+        .dot-amber { background: var(--amber); }
+        .dot-teal { background: #00bcd4; }
+        .dot-green { background: var(--green); }
+        .dot-pink { background: #e91e63; }
+        .dot-violet { background: #ce93d8; }
+        .quick-status-bar {
+            height: 42px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0 18px;
+            background: #090d13;
+            border-bottom: 1px solid var(--border);
+            overflow-x: auto;
+        }
+        .quick-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--border2);
+            background: var(--surface);
+            color: var(--text-dim);
+            font-family: var(--mono);
+            font-size: 0.64rem;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+        .quick-chip:hover { color: var(--text-bright); border-color: var(--blue); }
+        .quick-chip.active { color: var(--blue); border-color: var(--blue); background: var(--blue-dim); }
+        .layout-v2 .content-area {
+            padding-right: 310px;
+        }
+
+        .layout-v2.panel-abierto .content-area {
+            padding-right: 690px;
+        }
+
+        .layout-v2 #panel-detalle {
+            right: 310px;
+            transform: translateX(100%);
+        }
+
+        .layout-v2 #panel-detalle.abierto {
+            transform: translateX(0);
+        }
+        .layout-v2 .sidebar { box-shadow: -12px 0 40px rgba(0,0,0,0.22); }
+        @media (max-width: 1350px) {
+            .nav-v2 .search-wrap { max-width: 360px; }
+            .nav-btn.compact-hide { display: none; }
+        }
+        @media (max-width: 1100px) {
+            .layout-v2 .content-area { padding-right: 0; }
+            .layout-v2 #panel-detalle { right: 0; }
+            .actions-menu { right: auto; left: 0; }
+        }
+
         .main-layout { display: flex; min-height: calc(100vh - 52px); }
         .content-area { flex: 1; padding-right: 310px; min-width: 0; transition: padding-right 0.3s; }
 
@@ -203,6 +337,11 @@
             color: #fff;
             background: var(--red);
         }
+        .sync-parcial {
+            background: #ffb300;
+            color: #111;
+            border: 1px solid #ffc400;
+        }
         .sync-none {
             color: var(--text-dim);
             background: var(--surface2);
@@ -257,31 +396,91 @@
         </div>
     </div>
 
-    <nav>
+    <nav class="nav-v2">
         <div class="nav-brand">LEXVIEW PRO</div>
+
         <div class="search-wrap">
             <input type="text" id="globalSearch" placeholder="Buscar expediente o carátula..." onkeyup="filtrarExpedientes()">
         </div>
+
         <button class="nav-btn btn-vista" onclick="alternarVista()" id="btn-vista">☰ Lista</button>
-        <button class="nav-btn btn-purple" onclick="iniciarClasificador()">📂 CLASIFICAR</button>
-        <button class="nav-btn btn-amber"  onclick="iniciarSincronizador()">📥 SINCRONIZAR</button>
-        <button class="nav-btn" style="background:#00695c;color:#fff;" onclick="sincronizarSeleccionados()">☑ SINC. SELECC.</button>
-        <button class="nav-btn btn-teal"   onclick="iniciarActualizador()">🔔 ACTUALIZAR</button>
-        <button class="btn-accion" style="background:#6a1b9a; border-color:#8e24aa;" 
-            onclick="abrirModalRecuperarCaratulas()">
-            🏷️ CARÁTULAS
-        </button>
+
+        <div class="nav-actions-wrap">
+            <button class="nav-btn btn-actions-main" onclick="toggleAccionesMenu(event)">⚙ ACCIONES</button>
+            <div class="actions-menu" id="acciones-menu">
+                <div class="actions-menu-title">Centro de operaciones</div>
+
+                <button class="action-item" onclick="cerrarAccionesMenu(); iniciarClasificador();">
+                    <span><strong>📂 Clasificar</strong><small>Ordena importados por juzgado y secretaría</small></span>
+                    <span class="action-dot dot-purple"></span>
+                </button>
+
+                <button class="action-item" onclick="cerrarAccionesMenu(); iniciarSincronizador();">
+                    <span><strong>📥 Sincronizar pendientes</strong><small>Procesa solo expedientes con sync pendiente</small></span>
+                    <span class="action-dot dot-amber"></span>
+                </button>
+
+                <button class="action-item" onclick="cerrarAccionesMenu(); sincronizarSeleccionados();">
+                    <span><strong>☑ Sincronizar seleccionados</strong><small>Solo los expedientes marcados con checkbox</small></span>
+                    <span class="action-dot dot-green"></span>
+                </button>
+
+                <button class="action-item" onclick="cerrarAccionesMenu(); iniciarActualizador();">
+                    <span><strong>🔔 Actualizar notificaciones</strong><small>Busca movimientos por fecha y matrícula</small></span>
+                    <span class="action-dot dot-teal"></span>
+                </button>
+
+                <button class="action-item" onclick="cerrarAccionesMenu(); abrirModalRecuperarCaratulas();">
+                    <span><strong>🏷️ Recuperar carátulas</strong><small>Completa carátulas faltantes o ambiguas</small></span>
+                    <span class="action-dot dot-violet"></span>
+                </button>
+
+            {# ============================================================
+                COMPLETAR HISTORIAL
+                Se mantiene la función pero se oculta del menú principal
+                porque ahora:
+                - SINCRONIZAR = completa pendientes/parciales
+                - SINC. SELECC. = completa seleccionados
+                ============================================================ #}
+
+                
+               {#
+                {% if plan in ['pro', 'premium', 'dev'] %}
+                <button class="action-item" onclick="cerrarAccionesMenu(); iniciarCompletarHistorial();">
+                    <span><strong>📚 Completar historial</strong><small>Descarga actuaciones anteriores faltantes</small></span>
+                    <span class="action-dot dot-teal"></span>
+                </button>
+                {% endif %}
+                #}
+                
+
+                <button class="action-item" onclick="cerrarAccionesMenu(); iniciarAuditoria();">
+                    <span><strong>🔎 Auditoría</strong><small>Control manual por expediente o Excel</small></span>
+                    <span class="action-dot dot-pink"></span>
+                </button>
+                
+            </div>
+        </div>
+
         {% if plan in ['pro', 'premium', 'dev'] %}
-        <button class="nav-btn" style="background:#00897b;color:#fff;" onclick="iniciarCompletarHistorial()">📚 COMPLETAR</button>
-        <button class="nav-btn btn-pink"   onclick="iniciarAuditoria()">🔎 AUDITORÍA</button>
-        <button class="nav-btn" id="btn-nuevos" style="background:#1a3a1a;color:#00e676;border:1px solid #00e676;" onclick="filtrarNuevos()">🔔 NUEVOS</button>
+        <button class="nav-btn compact-hide" id="btn-nuevos" style="background:#1a3a1a;color:#00e676;border:1px solid #00e676;" onclick="filtrarNuevos()">🔔 NUEVOS</button>
         {% endif %}
+
         <div class="nav-user">
             Dr/a. <strong>{{ usuario }}</strong>
             <span class="plan-badge" id="plan-badge"></span>
             | <a href="/logout">CERRAR</a>
         </div>
     </nav>
+
+    <div class="quick-status-bar">
+        <button class="quick-chip active" onclick="limpiarFiltroSyncVisual()">📚 Todos</button>
+        <button class="quick-chip" onclick="filtrarSyncVisual('pendiente')">🟡 Pendientes</button>
+        <button class="quick-chip" onclick="filtrarSyncVisual('sincronizado')">🟢 Sincronizados</button>
+        <button class="quick-chip" onclick="filtrarSyncVisual('error')">🔴 Errores</button>
+        <button class="quick-chip" onclick="seleccionarVisiblesSync()">☑ Seleccionar visibles</button>
+        <button class="quick-chip" onclick="limpiarSeleccionSync()">☐ Limpiar selección</button>
+    </div>
 
     <div id="contenedor-barra"><div id="barra-progreso"></div></div>
     <div id="monitor-proceso"><div style="color:#1e2530; border-bottom:1px solid #1e2530; margin-bottom:5px; padding-bottom:3px; font-size:0.68rem;">▶ LEXVIEW TERMINAL v2.7</div></div>
@@ -324,7 +523,7 @@
         </div>
     </div>
 
-    <div class="main-layout">
+    <div class="main-layout layout-v2">
         <div class="content-area" id="content-area">
             {% for grupo in estructura %}
             <details class="juzgado-seccion">
@@ -353,6 +552,8 @@
                          data-causa-id="{{ expte.info.id if expte.info else '' }}"
                          data-sync-estado="{{ expte.info.estado_sync if expte.info and expte.info.estado_sync else 'sin_info' }}"
                          data-sync-pendiente="{{ '1' if expte.info and expte.info.necesita_sync else '0' }}"
+                         data-forum-total="{{ expte.info.paginas_forum_total if expte.info else 0 }}"
+                         data-descargadas-total="{{ expte.info.paginas_descargadas_total if expte.info else 0 }}"
                          data-juzgado="{{ grupo.nombre_juzgado }}"
                          data-secretaria="{{ sec.nombre }}"
                          data-visor="/visor/{{ grupo.nombre_juzgado }}/{{ sec.nombre }}/{{ expte.numero }}"
@@ -362,16 +563,23 @@
                         <div class="card-selector" onclick="event.stopPropagation();">
                             {% if expte.info %}
                                 <input type="checkbox"
-                                       class="chk-sync"
-                                       data-expte="{{ expte.info.numero }}"
-                                       data-causa-id="{{ expte.info.id }}"
-                                       onchange="marcarCardSeleccionada(this)">
+                                    class="chk-sync"
+                                    data-expte="{{ expte.info.numero }}"
+                                    data-causa-id="{{ expte.info.id }}"
+                                    onchange="marcarCardSeleccionada(this)">
+
                                 {% if expte.info.estado_sync == 'error' %}
                                     <span class="sync-badge sync-error" title="{{ expte.info.error_sync or 'Error de sincronización' }}">ERROR</span>
-                                {% elif expte.info.necesita_sync %}
-                                    <span class="sync-badge sync-pendiente">SYNC</span>
+
+                                {% elif expte.info.estado_sync == 'parcial' %}
+                                    <span class="sync-badge sync-parcial" title="{{ expte.info.error_sync or 'Actualización parcial; falta completar historial' }}">PARCIAL</span>
+
                                 {% elif expte.info.estado_sync == 'sincronizado' %}
                                     <span class="sync-badge sync-ok">OK</span>
+
+                                {% elif expte.info.necesita_sync %}
+                                    <span class="sync-badge sync-pendiente">PEND</span>
+
                                 {% else %}
                                     <span class="sync-badge sync-none">—</span>
                                 {% endif %}
@@ -484,6 +692,70 @@
         let panelCardActual = null;
         var socket = io();
 
+
+        // ── Dashboard V2: menú de acciones y filtros rápidos ───────────────
+        function toggleAccionesMenu(e) {
+            if (e) e.stopPropagation();
+            var menu = document.getElementById('acciones-menu');
+            if (menu) menu.classList.toggle('open');
+        }
+
+        function cerrarAccionesMenu() {
+            var menu = document.getElementById('acciones-menu');
+            if (menu) menu.classList.remove('open');
+        }
+
+        document.addEventListener('click', function(e) {
+            var wrap = document.querySelector('.nav-actions-wrap');
+            if (wrap && !wrap.contains(e.target)) cerrarAccionesMenu();
+        });
+
+        function _estadoSyncCard(card) {
+            if (!card) return '';
+            var badge = card.querySelector('.sync-badge');
+            if (!badge) return '';
+            var t = (badge.textContent || '').toLowerCase();
+            if (t.includes('pend')) return 'pendiente';
+            if (t.includes('error')) return 'error';
+            if (t.includes('ok') || t.includes('sinc')) return 'sincronizado';
+            return '';
+        }
+
+        function filtrarSyncVisual(estado) {
+            document.querySelectorAll('.quick-chip').forEach(function(b){ b.classList.remove('active'); });
+            if (event && event.currentTarget) event.currentTarget.classList.add('active');
+            document.querySelectorAll('.expte-card').forEach(function(card){
+                card.style.display = (_estadoSyncCard(card) === estado) ? '' : 'none';
+            });
+            document.querySelectorAll('.juzgado-seccion').forEach(function(s){
+                var visible = Array.from(s.querySelectorAll('.expte-card')).some(function(c){ return c.style.display !== 'none'; });
+                s.style.display = visible ? '' : 'none';
+                if (visible) s.open = true;
+            });
+        }
+
+        function limpiarFiltroSyncVisual() {
+            document.querySelectorAll('.quick-chip').forEach(function(b){ b.classList.remove('active'); });
+            if (event && event.currentTarget) event.currentTarget.classList.add('active');
+            document.querySelectorAll('.expte-card').forEach(function(card){ card.style.display = ''; });
+            document.querySelectorAll('.juzgado-seccion').forEach(function(s){ s.style.display = ''; });
+        }
+
+        function seleccionarVisiblesSync() {
+            document.querySelectorAll('.expte-card').forEach(function(card){
+                if (card.style.display === 'none') return;
+                var chk = card.querySelector('.chk-sync');
+                if (chk) { chk.checked = true; marcarCardSeleccionada(chk); }
+            });
+        }
+
+        function limpiarSeleccionSync() {
+            document.querySelectorAll('.chk-sync').forEach(function(chk){
+                chk.checked = false;
+                marcarCardSeleccionada(chk);
+            });
+        }
+
         // ── Badge del plan ────────────────────────────────────
         (function() {
             const colores = { trial: '#ff9800', basic: '#607d8b', pro: '#2979ff', premium: '#9c27b0', dev: '#00e676', piloto: '#607d8b' };
@@ -496,55 +768,163 @@
         })();
 
         // ── Monitor ───────────────────────────────────────────
-        function procesarDataBot(data) {
-            const monitor  = document.getElementById('monitor-proceso');
-            const barra    = document.getElementById('contenedor-barra');
-            const progreso = document.getElementById('barra-progreso');
-            monitor.style.display = 'block';
-            if (data.progreso !== undefined) {
-                barra.style.display = 'block';
-                progreso.style.width = data.progreso + '%';
-                progreso.innerText = data.progreso + '%';
-            }
-            let color = '#00e676';
-            if (data.msg.includes('❌') || data.msg.includes('💥')) color = '#ff4d4d';
-            else if (data.msg.includes('⚠️')) color = '#ffab00';
-            else if (data.msg.includes('🔍')) color = '#2979ff';
-            const hora = new Date().toLocaleTimeString();
-            monitor.innerHTML += '<div style="color:'+color+'; margin-bottom:1px;"><span style="color:#1e2530;">['+hora+']</span> '+data.msg+'</div>';
-            monitor.scrollTop = monitor.scrollHeight;
-        }
-        socket.on('status_update', procesarDataBot);
-        socket.on('bot_status', procesarDataBot);
-        socket.on('actualizacion_completa', function(data) {
+function procesarDataBot(data) {
+    const monitor  = document.getElementById('monitor-proceso');
+    const barra    = document.getElementById('contenedor-barra');
+    const progreso = document.getElementById('barra-progreso');
+    monitor.style.display = 'block';
+
+    if (data.progreso !== undefined) {
+        barra.style.display = 'block';
+        progreso.style.width = data.progreso + '%';
+        progreso.innerText = data.progreso + '%';
+    }
+
+    let color = '#00e676';
+    if (data.msg.includes('❌') || data.msg.includes('💥')) color = '#ff4d4d';
+    else if (data.msg.includes('⚠️')) color = '#ffab00';
+    else if (data.msg.includes('🔍')) color = '#2979ff';
+
+    const hora = new Date().toLocaleTimeString();
+
+    monitor.innerHTML += '<div style="color:'+color+'; margin-bottom:1px;"><span style="color:#1e2530;">['+hora+']</span> '+data.msg+'</div>';
+    monitor.scrollTop = monitor.scrollHeight;
+}
+
+socket.on('status_update', procesarDataBot);
+socket.on('bot_status', procesarDataBot);
+
+socket.on('actualizacion_completa', function(data) {
+    
+    console.log('DEBUG tarjetas:', document.querySelectorAll('.expte-card').length);
+
+    document.querySelectorAll('.expte-card').forEach(function(card) {
+        console.log(
+            'CARD',
+            card.dataset.nro,
+            card.dataset.syncEstado,
+            card.dataset.forumTotal,
+            card.dataset.descargadasTotal
+        );
+    });
     document.getElementById('monitor-proceso').innerHTML += 
         '<div style="color:#00e676;font-weight:700;margin-top:6px;">▶ ACTUALIZACIÓN FINALIZADA</div>';
-    
+
+    var parciales = data.expedientes_parciales || [];
+
+
+    if (parciales.length === 0) {
+        setTimeout(function() { location.reload(); }, 1800);
+        return;
+    }
+
+    var filasHtml = parciales.map(function(e, idx) {
+        var opciones = '';
+
+        opciones += '<button class="btn-opcion-sync" onclick="setCantidadCompletar('+idx+', '+e.faltan+')">Todas</button>';
+
+        if (e.faltan >= 3) {
+            opciones += '<button class="btn-opcion-sync" onclick="setCantidadCompletar('+idx+', 3)">3</button>';
+        }
+
+        if (e.faltan >= 5) {
+            opciones += '<button class="btn-opcion-sync" onclick="setCantidadCompletar('+idx+', 5)">5</button>';
+        }
+
+        if (e.faltan >= 10) {
+            opciones += '<button class="btn-opcion-sync" onclick="setCantidadCompletar('+idx+', 10)">10</button>';
+        }
+
+        opciones += '<input class="input-cant-sync" id="cant-sync-'+idx+'" type="number" min="1" max="'+e.faltan+'" value="'+e.faltan+'">';
+
+        return '' +
+            '<div class="fila-parcial-sync">' +
+                '<div>' +
+                    '<div class="modal-expte-nro">'+e.nro+'</div>' +
+                    '<div class="modal-expte-info">Forum: '+e.forum_Total+' · LexView: '+e.descargadas+' · Faltan: '+e.faltan+'</div>' +
+                '</div>' +
+                '<div class="modal-opciones-sync">' + opciones + '</div>' +
+            '</div>';
+    }).join('');
+
     var modal = document.createElement('div');
     modal.id = 'modal-completar';
-    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.80);z-index:9999;display:flex;align-items:center;justify-content:center;';
-    modal.innerHTML = 
-        '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:28px;width:400px;font-family:var(--mono);">' +
-        '<div style="color:#00bcd4;font-size:0.85rem;font-weight:700;margin-bottom:8px;">📚 COMPLETAR HISTORIAL</div>' +
-        '<div style="color:var(--text);font-size:0.78rem;margin-bottom:20px;line-height:1.6;">' +
-        'Se actualizaron <strong style="color:var(--blue);">' + data.total + '</strong> expedientes.<br>' +
-        '¿Querés completar el historial de estos mismos expedientes ahora?' +
-        '</div>' +
-        '<div style="display:flex;gap:10px;">' +
-        '<button onclick="document.body.removeChild(document.getElementById(\'modal-completar\'));location.reload();" ' +
-        'style="flex:1;padding:9px;background:transparent;border:1px solid var(--border2);color:var(--text);border-radius:5px;cursor:pointer;font-size:0.75rem;font-family:var(--mono);">NO, CERRAR</button>' +
-        '<button id="btn-si-completar" style="flex:2;padding:9px;background:#00bcd4;border:none;color:#000;border-radius:5px;cursor:pointer;font-size:0.75rem;font-weight:700;font-family:var(--mono);">SÍ, COMPLETAR AHORA</button>' +
-        '</div></div>';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.84);z-index:9999;display:flex;align-items:center;justify-content:center;';
+
+    modal.innerHTML =
+        '<style>' +
+            '.modal-sync-box{background:var(--surface);border:1px solid var(--border2);border-radius:12px;width:720px;max-width:95vw;max-height:86vh;display:flex;flex-direction:column;overflow:hidden;font-family:var(--mono);box-shadow:0 20px 60px rgba(0,0,0,.55);}' +
+            '.modal-sync-head{padding:16px 20px;border-bottom:1px solid var(--border2);}' +
+            '.modal-sync-title{color:#00bcd4;font-size:.86rem;font-weight:700;margin-bottom:6px;}' +
+            '.modal-sync-sub{color:var(--text-dim);font-size:.68rem;line-height:1.5;}' +
+            '.modal-sync-body{padding:14px 18px;overflow-y:auto;}' +
+            '.fila-parcial-sync{display:grid;grid-template-columns:1fr 310px;gap:12px;align-items:center;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:12px;margin-bottom:8px;}' +
+            '.modal-expte-nro{color:var(--blue);font-weight:700;font-size:.82rem;margin-bottom:4px;}' +
+            '.modal-expte-info{color:var(--text-dim);font-size:.64rem;}' +
+            '.modal-opciones-sync{display:flex;gap:6px;justify-content:flex-end;align-items:center;flex-wrap:wrap;}' +
+            '.btn-opcion-sync{background:var(--surface2);border:1px solid var(--border2);color:var(--text);border-radius:5px;padding:6px 8px;cursor:pointer;font-size:.65rem;font-family:var(--mono);}' +
+            '.btn-opcion-sync:hover{border-color:var(--blue);color:var(--blue);}' +
+            '.input-cant-sync{width:58px;background:#05080d;border:1px solid var(--border2);color:var(--text-bright);border-radius:5px;padding:6px;font-family:var(--mono);font-size:.65rem;text-align:center;}' +
+            '.modal-sync-foot{padding:14px 18px;border-top:1px solid var(--border2);display:flex;gap:10px;justify-content:flex-end;}' +
+            '.btn-modal-cancel{padding:9px 16px;background:transparent;border:1px solid var(--border2);color:var(--text);border-radius:6px;cursor:pointer;font-size:.72rem;font-family:var(--mono);}' +
+            '.btn-modal-ok{padding:9px 20px;background:#00bcd4;border:none;color:#000;border-radius:6px;cursor:pointer;font-size:.72rem;font-weight:700;font-family:var(--mono);}' +
+        '</style>' +
+        '<div class="modal-sync-box">' +
+            '<div class="modal-sync-head">' +
+                '<div class="modal-sync-title">📚 COMPLETAR HISTORIAL PARCIAL</div>' +
+                '<div class="modal-sync-sub">Se detectaron '+parciales.length+' expediente(s) parciales. Elegí cuántas actuaciones querés completar ahora.</div>' +
+            '</div>' +
+            '<div class="modal-sync-body">' + filasHtml + '</div>' +
+            '<div class="modal-sync-foot">' +
+                '<button class="btn-modal-cancel" onclick="document.body.removeChild(document.getElementById(\'modal-completar\'));location.reload();">NO, DESPUÉS</button>' +
+                '<button class="btn-modal-ok" id="btn-confirmar-completar-parciales">COMPLETAR SELECCIÓN</button>' +
+            '</div>' +
+        '</div>';
+
     document.body.appendChild(modal);
-    
-    document.getElementById('btn-si-completar').onclick = function() {
+
+    window.__parcialesSync = parciales;
+
+    document.getElementById('btn-confirmar-completar-parciales').onclick = function() {
+        var seleccion = window.__parcialesSync.map(function(e, idx) {
+            var input = document.getElementById('cant-sync-' + idx);
+            var cantidad = parseInt(input.value || '0', 10);
+
+            if (cantidad < 1) cantidad = 1;
+            if (cantidad > e.faltan) cantidad = e.faltan;
+            return {
+                nro: e.nro,
+                causa_id: e.causa_id || '',
+                juzgado: e.juzgado,
+                secretaria: e.secretaria,
+                cantidad: cantidad
+            };
+        });
+
         document.body.removeChild(document.getElementById('modal-completar'));
         document.getElementById('monitor-proceso').style.display = 'block';
-        var fd = new FormData();
-        fd.append('expedientes', JSON.stringify(data.expedientes));
-        fetch('/run_completar_historial', {method:'POST', body:fd});
+
+        fetch('/run_completar_historial_selectivo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ expedientes: seleccion })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(resp) {
+            if (!resp.success) {
+                alert(resp.message || 'No se pudo iniciar completar historial.');
+            }
+        })
+        .catch(function(err) {
+            alert('Error iniciando completar historial: ' + err);
+        });
     };
 });
+
+function setCantidadCompletar(idx, cantidad) {
+    var input = document.getElementById('cant-sync-' + idx);
+    if (input) input.value = cantidad;
+}
 
 socket.on('bot_finished', function() {
     document.getElementById('monitor-proceso').innerHTML += 
@@ -617,19 +997,33 @@ socket.on('bot_finished', function() {
             document.getElementById('panel-titulo-vence').dataset.nro = nro;
             document.getElementById('panel-fecha-vence').dataset.nro = nro;
             var lista = document.getElementById('panel-pdf-lista');
-            if (archivos.length) {
+           if (archivos.length) {
                 lista.innerHTML = archivos.map(function(f){
-                    return '<div class="panel-pdf-item"><span>📄 '+(f.length>38?f.substring(0,38)+'…':f)+'</span></div>';
+
+                    return `
+                        <div class="panel-pdf-item">
+                            <span>📄 ${f.length > 38 ? f.substring(0,38)+'…' : f}</span>
+
+                            <span class="panel-pdf-del"
+                                title="Eliminar PDF"
+                                onclick="event.stopPropagation(); eliminarPdfPanel('${f}')">
+                                ✕
+                            </span>
+                        </div>
+                    `;
+
                 }).join('');
             } else {
                 lista.innerHTML = '<div style="color:var(--text-dim); font-size:0.68rem; padding:4px 0;">Sin archivos</div>';
             }
             document.getElementById('panel-btn-subir').onclick = function(){ subirPDF(nro, juzgado, secretaria); };
+            document.querySelector('.main-layout').classList.add('panel-abierto');
             document.getElementById('panel-detalle').classList.add('abierto');
         }
 
         function cerrarPanel() {
             document.getElementById('panel-detalle').classList.remove('abierto');
+            document.querySelector('.main-layout').classList.remove('panel-abierto');
             document.querySelectorAll('.card').forEach(function(c){c.classList.remove('active');});
             panelCardActual = null;
         }
@@ -699,6 +1093,42 @@ socket.on('bot_finished', function() {
                 });
             };
             input.click();
+        }
+        function eliminarPdfPanel(nombreArchivo) {
+
+            if (!panelCardActual) return;
+
+            if (!confirm('¿Eliminar este PDF?')) {
+                return;
+            }
+
+            fetch('/eliminar_pdf', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    nro_expte: panelCardActual.dataset.nro,
+                    juzgado: panelCardActual.dataset.juzgado,
+                    secretaria: panelCardActual.dataset.secretaria,
+                    archivo: nombreArchivo
+                })
+            })
+            .then(r => r.json())
+            .then(resp => {
+
+                if (!resp.success) {
+                    alert(resp.message || 'No se pudo eliminar.');
+                    return;
+                }
+
+                abrirPanel(panelCardActual);
+
+                setTimeout(() => location.reload(), 500);
+            })
+            .catch(err => {
+                alert('Error: ' + err);
+            });
         }
 
         // ── Bots ──────────────────────────────────────────────

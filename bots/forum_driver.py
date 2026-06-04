@@ -303,6 +303,58 @@ def _seleccionar_localidad(driver, wait, localidad):
         (By.XPATH, f"//span[contains(text(), '{localidad}')]")
     )).click()
 
+
+def contar_actuaciones_forum(driver):
+    """
+    Estima actuaciones totales sin navegar páginas.
+    Lee 'Página 1 de X' del DOM y multiplica por filas reales visibles.
+    Mucho más estable que paginar con AJAX.
+    """
+
+    try:
+        tabla = esperar_tabla_actuaciones(driver, timeout=20)
+        filas = tabla.find_elements(By.XPATH, ".//tbody/tr")
+
+        filas_reales = 0
+
+        for fila in filas:
+            try:
+                celdas = fila.find_elements(By.TAG_NAME, "td")
+                texto = " ".join([c.text.strip() for c in celdas])
+
+                if re.search(r'\d{1,2}/\d{1,2}/\d{2,4}', texto):
+                    filas_reales += 1
+
+            except Exception:
+                continue
+
+        total_paginas = 1
+
+        elementos = driver.find_elements(
+            By.XPATH,
+            "//*[contains(text(), 'Página') and contains(text(), 'de')]"
+        )
+
+        for el in elementos:
+            texto = el.text.strip()
+            match = re.search(r"Página\s+\d+\s+de\s+(\d+)", texto, re.IGNORECASE)
+
+            if match:
+                total_paginas = int(match.group(1))
+                break
+
+        total_estimado = filas_reales * total_paginas
+
+        print(f"📄 Filas visibles: {filas_reales}")
+        print(f"📄 Total páginas Forum: {total_paginas}")
+        print(f"✅ TOTAL ESTIMADO FORUM: {total_estimado}")
+
+        return total_estimado
+
+    except Exception as e:
+        print(f"⚠️ Error estimando actuaciones: {e}")
+        return 0
+
 def descargar_pdfs_nuevos(driver, ruta_local, temp_download_path):
     descargas = 0
     main_window = driver.current_window_handle
@@ -337,6 +389,16 @@ def descargar_pdfs_nuevos(driver, ruta_local, temp_download_path):
     filas = driver.find_elements(By.XPATH, "//table//tbody/tr")
     print(f"🔍 {len(filas)} filas en tabla de actuaciones")
 
+   # ============================================================
+    # NUEVO — DETECTAR TOTAL REAL DE ACTUACIONES
+    # ============================================================
+
+    driver.paginas_forum_total = contar_actuaciones_forum(driver)
+
+    print(f"[DEBUG ACTUACIONES] Total real Forum = {driver.paginas_forum_total}")
+
+    tabla = esperar_tabla_actuaciones(driver, timeout=20)
+    filas = tabla.find_elements(By.XPATH, ".//tbody/tr")
     fecha_mas_reciente = None
     for fila in filas:
         try:
@@ -393,7 +455,27 @@ def descargar_pdfs_nuevos(driver, ruta_local, temp_download_path):
                 fila_idx += 1
                 continue
 
-            nombre_final = f"{fecha_iso} - {tipo_str}.pdf".replace("/", "_").replace(":", "").replace("\\", "")
+            numero_id = ""
+
+            try:
+                if len(celdas) > 4:
+                    numero_id = celdas[4].text.strip()
+            except:
+                pass
+
+            base_nombre = f"{fecha_iso} - {tipo_str}"
+            base_nombre = (
+                base_nombre
+                .replace("/", "_")
+                .replace(":", "")
+                .replace("\\", "")
+                .strip()
+            )
+
+            if numero_id:
+                nombre_final = f"{base_nombre}_{numero_id}.pdf"
+            else:
+                nombre_final = f"{base_nombre}.pdf"
             dest_final = os.path.join(ruta_local, nombre_final)
 
             print(f"📥 Descargando: {nombre_final}")
@@ -447,7 +529,7 @@ def descargar_pdfs_nuevos(driver, ruta_local, temp_download_path):
 
         fila_idx += 1
 
-    return descargas
+    return descargas, getattr(driver, "paginas_forum_total", 0)
 
 def leer_caratula_desde_pagina(driver) -> str:
     """
@@ -520,7 +602,14 @@ def esperar_tabla_actuaciones(driver, timeout=15):
 
     raise TimeoutException("No se encontró la tabla específica de Actuaciones")
 
-def sincronizar_pdfs(driver, ruta_local, temp_download_path, fecha_desde=None, cortar_si_existe=False):
+def sincronizar_pdfs(
+    driver,
+    ruta_local,
+    temp_download_path,
+    fecha_desde=None,
+    cortar_si_existe=False,
+    max_descargas=None
+):
     """
     v4.7: Usa tabla correcta de Actuaciones + paginación fuera de la tabla.
     """
@@ -529,22 +618,79 @@ def sincronizar_pdfs(driver, ruta_local, temp_download_path, fecha_desde=None, c
     pagina_actual = 1
     numeros_ya_descargados = set()
     nombres_ya_descargados = set()
+    nombres_norm_ya_descargados = set()
+
+    def _normalizar_nombre_pdf(txt):
+        txt = (txt or "").lower()
+        txt = txt.replace(".pdf", "")
+        txt = txt.replace("_", " ")
+        txt = re.sub(r"[_\s](\d{6,8})$", "", txt)
+        txt = re.sub(r"[^a-z0-9áéíóúñ]+", " ", txt)
+        txt = re.sub(r"\s+", " ", txt).strip()
+        return txt
+
+    def _ya_existe_actuacion(numero_id, nombre_sin_id):
+        print(f"[CHECK] ID={numero_id!r} | nombre={nombre_sin_id!r}")
+        print(f"[IDS LOCALES] {list(numeros_ya_descargados)[:15]}")
+        if numero_id in numeros_ya_descargados:
+            return True
+
+        nombre_norm = _normalizar_nombre_pdf(nombre_sin_id)
+
+        for viejo in nombres_norm_ya_descargados:
+            if len(nombre_norm) >= 18 and len(viejo) >= 18:
+                if nombre_norm in viejo or viejo in nombre_norm:
+                    return True
+
+        return False
     fallidos = []
 
     if not os.path.exists(ruta_local):
         os.makedirs(ruta_local, exist_ok=True)
 
     for f in os.listdir(ruta_local):
-        if f.endswith(".pdf"):
-            match = re.search(r"_(\d{6,8})\.pdf$", f)
+        if f.lower().endswith(".pdf"):
+            match = re.search(r"[_\s](\d{6,8})\.pdf$", f, re.IGNORECASE)
+
+            if not match:
+                match = re.search(r"_(\d{6,8})(?:\s*\(\d+\))?\.pdf$", f, re.IGNORECASE)
+
             if match:
                 numeros_ya_descargados.add(match.group(1))
 
             nombre_sin_ext = f[:-4]
             nombre_limpio = re.sub(r"_\d{6,8}$", "", nombre_sin_ext).strip()
             nombres_ya_descargados.add(nombre_limpio)
-
+            nombres_norm_ya_descargados.add(_normalizar_nombre_pdf(nombre_limpio))
     print(f"IDs ya existentes: {len(numeros_ya_descargados)}")
+    def _volver_a_pagina_1():
+        try:
+            for _ in range(5):
+                texto = driver.find_element(By.TAG_NAME, "body").text
+
+                if re.search(r"Página\s+1\s+de\s+\d+", texto, re.IGNORECASE):
+                    print("✅ Ya estamos en página 1")
+                    return True
+
+                btn_ant = driver.find_element(
+                    By.XPATH,
+                    "//a[normalize-space()='Ant' or contains(normalize-space(), 'Ant')]"
+                )
+
+                clase = (btn_ant.get_attribute("class") or "").lower()
+
+                if "disabled" in clase:
+                    print("✅ Botón Ant deshabilitado: página 1")
+                    return True
+
+                driver.execute_script("arguments[0].click();", btn_ant)
+                time.sleep(1.5)
+
+            return True
+
+        except Exception as e:
+            print(f"⚠️ No se pudo volver a página 1: {e}")
+            return False
 
     def _descargar_fila(boton, numero_id, nombre_final, ruta_local, temp_download_path):
         archivos_antes = set(os.listdir(temp_download_path))
@@ -617,7 +763,7 @@ def sincronizar_pdfs(driver, ruta_local, temp_download_path, fecha_desde=None, c
                 continue
 
         return None
-
+    _volver_a_pagina_1()
     while True:
         print(f"\n=== PROCESANDO PÁGINA {pagina_actual} ===")
 
@@ -743,15 +889,13 @@ def sincronizar_pdfs(driver, ruta_local, temp_download_path, fecha_desde=None, c
                 tipo_str = re.sub(r'[\\/*?:"<>|]', "_", tipo_str)
                 nombre_sin_id = f"{fecha_iso} - {tipo_str}".strip()
 
-                if numero_id in numeros_ya_descargados:
+                if _ya_existe_actuacion(numero_id, nombre_sin_id):
+
                     if cortar_si_existe:
-                        print(f"🏁 ID {numero_id} ya existe → cortando")
+                        print(f"🏁 Actuación ya existe ({numero_id}) → cortando")
                         return descargas_totales
 
-                    idx_fila += 1
-                    continue
-
-                if nombre_sin_id in nombres_ya_descargados:
+                    print(f"⏩ Actuación ya existe ({numero_id}) → sigo buscando anteriores")
                     idx_fila += 1
                     continue
 
@@ -774,6 +918,10 @@ def sincronizar_pdfs(driver, ruta_local, temp_download_path, fecha_desde=None, c
 
                     descargas_pagina += 1
                     descargas_totales += 1
+
+                    if max_descargas and descargas_totales >= max_descargas:
+                        print(f"🏁 Límite alcanzado ({max_descargas})")
+                        return descargas_totales
 
                     numeros_ya_descargados.add(numero_id)
                     nombres_ya_descargados.add(nombre_sin_id)
@@ -1043,7 +1191,7 @@ def sincronizar_pdfs_inverso(driver, ruta_local, temp_download_path):
                 ids_existentes.add(match.group(1))
  
     print(f"📂 IDs ya existentes: {len(ids_existentes)}")
- 
+
     # Esperar tabla inicial
     try:
         wait = WebDriverWait(driver, 15)

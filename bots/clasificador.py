@@ -2,6 +2,8 @@
 import os
 import re
 import time
+from datetime import datetime
+
 import shutil
 from bots.forum_driver import login_forum, buscar_expediente
 from bots.driver_manager import get_driver, release_driver, is_logged_in, marcar_ocupado, marcar_libre
@@ -120,16 +122,36 @@ def ejecutar_clasificacion(usuario_id, usuario_nombre, socketio, app):
                         numero=nro_completo, usuario_id=usuario_id
                     ).first()
                     if not existe:
+
+                        # ============================================================
+                        # NUEVO — MARCAR COMO PENDIENTE DE SINCRONIZAR
+                        # ============================================================
                         nueva = CausaInfo(
                             numero=nro_completo,
                             juzgado=juz_final,
                             secretaria=sec_final,
                             demandado=demandado_final,
                             estado="En Trámite",
-                            usuario_id=usuario_id
+                            usuario_id=usuario_id,
+
+                            # NUEVO
+                            necesita_sync=True,
+                            estado_sync="pendiente",
+                            lote_importacion=datetime.now().strftime("%Y%m%d_%H%M%S")
                         )
+
                         db.session.add(nueva)
                         db.session.commit()
+
+                    else:
+
+                        # ============================================================
+                        # NUEVO — SI YA EXISTE NO VOLVER A MARCAR
+                        # ============================================================
+                        # IMPORTANTE:
+                        # si el expediente ya estaba sincronizado anteriormente,
+                        # NO queremos volver a meterlo en pendientes.
+                        pass
             except Exception as e:
                 socketio.emit('bot_log', {'log': [f'💥 Error en DB para {nro_solo}: {str(e)}']})
                 errores += 1

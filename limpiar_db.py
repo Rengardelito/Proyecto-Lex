@@ -43,5 +43,5 @@ def probar_limpieza_fuera_del_bot(username_prueba):
 
 if __name__ == "__main__":
     # Cambiá 'Nico' (o tu nombre de usuario en la DB) para probar
-    NOMBRE_USUARIO = "nico" 
+    NOMBRE_USUARIO = "Nicolas_Navarro" 
     probar_limpieza_fuera_del_bot(NOMBRE_USUARIO)

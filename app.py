@@ -249,10 +249,38 @@ def importar_desde_lista():
                 ruta_expte = os.path.join(ruta_importados, nombre)
                 if not os.path.exists(ruta_expte):
                     os.makedirs(ruta_expte)
+
+                    # ============================================================
+                    # NUEVO — REGISTRO EN DB COMO PENDIENTE DE SINCRONIZAR
+                    # ============================================================
+                    existe_db = CausaInfo.query.filter_by(
+                        numero=nombre,
+                        usuario_id=current_user.id
+                    ).first()
+
+                    if not existe_db:
+                        nueva = CausaInfo(
+                            numero=nombre,
+                            usuario_id=current_user.id,
+                            estado="Importado",
+                            necesita_sync=True,
+                            estado_sync="pendiente",
+                            lote_importacion=datetime.now().strftime("%Y%m%d_%H%M%S")
+                        )
+
+                        db.session.add(nueva)
+                        db.session.commit()
+
                     creados += 1
-                    socketio.emit('bot_status', {'msg': f'✅ Carpeta creada: {nombre}'})
+
+                    socketio.emit('bot_status', {
+                        'msg': f'✅ Carpeta creada: {nombre}'
+                    })
+
                 else:
-                    socketio.emit('bot_status', {'msg': f'⏩ Ya existe: {nombre}'})
+                    socketio.emit('bot_status', {
+                        'msg': f'⏩ Ya existe: {nombre}'
+                    })
             socketio.emit('bot_status', {'msg': f'🏁 {creados} carpetas creadas en IMPORTADOS'})
             socketio.emit('bot_finished', {})
         t = threading.Thread(target=hilo, daemon=True)
@@ -333,7 +361,7 @@ def dashboard():
         f = v.fecha.isoformat()
         notas_json.setdefault(f, []).append({'tipo': 'vencimiento', 'texto': v.titulo})
 
-    return render_template('dashboard.html',
+    return render_template('dashboard2.html',
                            usuario=usuario,
                            causas=causas_db,
                            estructura=estructura_carpetas,
@@ -457,11 +485,71 @@ def mi_matricula():
 @requiere_feature('sincronizar')
 def run_sincronizador():
     u_id, u_name = current_user.id, current_user.username
+
+    # ============================================================
+    # SOLO EXPEDIENTES PENDIENTES
+    # ============================================================
+    pendientes = CausaInfo.query.filter_by(
+        usuario_id=u_id,
+        necesita_sync=True
+    ).count()
+
+    if pendientes == 0:
+        return jsonify({
+            "success": False,
+            "message": "No hay expedientes pendientes de sincronización."
+        })
+
     def hilo():
         from bots.sincronizador import ejecutar_sincronizacion
-        ejecutar_sincronizacion(u_id, u_name, socketio, app)
+        ejecutar_sincronizacion(
+            u_id,
+            u_name,
+            socketio,
+            app,
+            solo_pendientes=True
+        )
+
+    threading.Thread(target=hilo, daemon=True).start()
+
+    return jsonify({
+        "success": True,
+        "message": f"Sincronizando {pendientes} expedientes pendientes..."
+    })
     threading.Thread(target=hilo, daemon=True).start()
     return jsonify({"success": True})
+
+@app.route('/run_sincronizador_selectivo', methods=['POST'])
+@login_required
+@requiere_feature('sincronizar')
+def run_sincronizador_selectivo():
+    u_id, u_name = current_user.id, current_user.username
+    data = request.get_json(silent=True) or {}
+    expedientes = data.get('expedientes', [])
+
+    if not expedientes:
+        return jsonify({
+            "success": False,
+            "message": "No se seleccionaron expedientes."
+        }), 400
+
+    def hilo():
+        from bots.sincronizador import ejecutar_sincronizacion
+        ejecutar_sincronizacion(
+            u_id,
+            u_name,
+            socketio,
+            app,
+            solo_pendientes=False,
+            expedientes_seleccionados=expedientes
+        )
+
+    threading.Thread(target=hilo, daemon=True).start()
+
+    return jsonify({
+        "success": True,
+        "message": f"Sincronizando {len(expedientes)} expedientes seleccionados..."
+    })
 
 @app.route('/run_completar_historial', methods=['POST'])
 @login_required
@@ -506,6 +594,49 @@ def run_completar_historial():
 #     threading.Thread(target=hilo, daemon=True).start()
 #     return jsonify({"success": True})
 
+
+# ============================================================
+# COMPLETAR HISTORIAL SELECTIVO
+# ============================================================
+@app.route('/run_completar_historial_selectivo', methods=['POST'])
+@login_required
+@requiere_feature('sincronizar')
+def run_completar_historial_selectivo():
+
+    u_id   = current_user.id
+    u_name = current_user.username
+
+    data = request.get_json(silent=True) or {}
+    expedientes = data.get('expedientes', [])
+
+    if not expedientes:
+        return jsonify({
+            "success": False,
+            "message": "No se recibieron expedientes."
+        }), 400
+
+    max_exptes = max_exptes_trial(current_user)
+
+    def hilo():
+        with app.app_context():
+
+            from bots.sincronizador import ejecutar_completar_historial
+
+            ejecutar_completar_historial(
+                u_id,
+                u_name,
+                socketio,
+                app,
+                max_exptes=max_exptes,
+                lista_exptes=expedientes
+            )
+
+    threading.Thread(target=hilo, daemon=True).start()
+
+    return jsonify({
+        "success": True,
+        "message": f"Completando {len(expedientes)} expedientes..."
+    })
 
 
 @app.route('/run_auditoria', methods=['POST'])
@@ -632,6 +763,81 @@ def guardar_nota():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
+
+@app.route('/eliminar_pdf', methods=['POST'])
+@login_required
+def eliminar_pdf():
+    data = request.get_json(silent=True) or {}
+
+    nro_expte  = data.get('nro_expte', '')
+    juzgado    = data.get('juzgado', '')
+    secretaria = data.get('secretaria', '')
+    archivo    = data.get('archivo', '')
+
+    if not nro_expte or not juzgado or not secretaria or not archivo:
+        return jsonify({
+            'success': False,
+            'message': 'Faltan datos para eliminar el PDF.'
+        }), 400
+
+    # Seguridad básica: evitar rutas raras
+    archivo = os.path.basename(archivo)
+
+    ruta = os.path.join(
+        BASE_DATOS_PDFS,
+        current_user.username,
+        juzgado,
+        secretaria,
+        nro_expte,
+        archivo
+    )
+
+    if not os.path.exists(ruta):
+        return jsonify({
+            'success': False,
+            'message': 'El archivo no existe.'
+        }), 404
+
+    try:
+        os.remove(ruta)
+
+        # Recalcular estado sync después de borrar
+        causa = CausaInfo.query.filter_by(
+            numero=nro_expte,
+            usuario_id=current_user.id
+        ).first()
+
+        if causa:
+            carpeta = os.path.dirname(ruta)
+            total_local = len([
+                f for f in os.listdir(carpeta)
+                if f.lower().endswith('.pdf')
+            ])
+
+            causa.paginas_descargadas_total = total_local
+
+            if total_local >= (causa.paginas_forum_total or 0):
+                causa.estado_sync = "sincronizado"
+                causa.necesita_sync = False
+                causa.error_sync = None
+            else:
+                causa.estado_sync = "parcial"
+                causa.necesita_sync = True
+                causa.error_sync = "PDF eliminado manualmente; falta completar historial"
+
+            causa.ultima_sync = datetime.utcnow()
+            db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': 'PDF eliminado correctamente.'
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
 
 @app.route('/subir_pdf', methods=['POST'])
 @login_required
@@ -1012,16 +1218,49 @@ def ejecutar_recuperar_caratulas():
     threading.Thread(target=hilo, daemon=True).start()
     return jsonify({"success": True})
 # ============================================================
+# MIGRACIÓN AUTOMÁTICA DB
+# ============================================================
+def asegurar_columnas_sync():
+    import sqlite3
+
+    conn = sqlite3.connect("lexview.db")
+    cursor = conn.cursor()
+
+    cursor.execute("PRAGMA table_info(causa_info)")
+    columnas = [c[1] for c in cursor.fetchall()]
+
+    if "paginas_forum_total" not in columnas:
+        cursor.execute("""
+            ALTER TABLE causa_info
+            ADD COLUMN paginas_forum_total INTEGER DEFAULT 0
+        """)
+
+    if "paginas_descargadas_total" not in columnas:
+        cursor.execute("""
+            ALTER TABLE causa_info
+            ADD COLUMN paginas_descargadas_total INTEGER DEFAULT 0
+        """)
+
+    conn.commit()
+    conn.close()
+
+
+# ============================================================
 # ARRANQUE
 # ============================================================
 def run_app():
     with app.app_context():
         db.create_all()
+        asegurar_columnas_sync()
+
     socketio.run(app, debug=False, host='127.0.0.1', port=5000, allow_unsafe_werkzeug=True)
+
 
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+        asegurar_columnas_sync()
+
     socketio.run(app, debug=False, host='0.0.0.0', port=5000)
 
     

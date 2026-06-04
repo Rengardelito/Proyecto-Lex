@@ -57,7 +57,15 @@ def _mover_migrados(ruta, socketio):
     if movidos > 0:
         socketio.emit('bot_status', {'msg': f'📦 {movidos} archivos migrados movidos a MIGRADOS/'})
 
-def ejecutar_sincronizacion(usuario_id, usuario_nombre, socketio, app, max_exptes=None):
+def ejecutar_sincronizacion(
+    usuario_id,
+    usuario_nombre,
+    socketio,
+    app,
+    max_exptes=None,
+    solo_pendientes=False,
+    expedientes_seleccionados=None
+):
     # Obtener credenciales del usuario desde la DB
     with app.app_context():
         from database.models import Usuario
@@ -93,12 +101,22 @@ def ejecutar_sincronizacion(usuario_id, usuario_nombre, socketio, app, max_expte
        
 
         with app.app_context():
-            causas = CausaInfo.query.filter_by(usuario_id=usuario_id).all()
+
+            query = CausaInfo.query.filter_by(usuario_id=usuario_id)
+
+            if expedientes_seleccionados:
+                query = query.filter(CausaInfo.numero.in_(expedientes_seleccionados))
+            elif solo_pendientes:
+                query = query.filter_by(necesita_sync=True)
+
+            causas = query.all()
+
             lista_causas = [
                 {
+                    "id":         c.id,
                     "numero":     c.numero,
-                    "tipo":       c.tipo or "",       # ← agregar esto
-                    "juzgado":    c.juzgado    or "SIN JUZGADO",
+                    "tipo":       c.tipo or "",
+                    "juzgado":    c.juzgado or "SIN JUZGADO",
                     "secretaria": c.secretaria or "SIN SECRETARIA",
                 }
                 for c in causas
@@ -113,8 +131,19 @@ def ejecutar_sincronizacion(usuario_id, usuario_nombre, socketio, app, max_expte
             lista_causas = lista_causas[:max_exptes]    
 
         total = len(lista_causas)
-        socketio.emit('bot_status', {'msg': f'📁 {total} expedientes encontrados', 'progreso': 25})
 
+        if total == 0:
+            socketio.emit('bot_status', {
+                'msg': '📭 No hay expedientes pendientes de sincronizar',
+                'progreso': 100
+            })
+            socketio.emit('bot_finished', {})
+            return
+
+        socketio.emit('bot_status', {
+            'msg': f'📁 {total} expedientes pendientes encontrados',
+            'progreso': 25
+})
         for idx, causa in enumerate(lista_causas):
             nro = causa["numero"]
             progreso = int(((idx + 1) / total) * 70) + 25
@@ -138,17 +167,71 @@ def ejecutar_sincronizacion(usuario_id, usuario_nombre, socketio, app, max_expte
             socketio.emit('bot_status', {'msg': f'📂 {nro}: descargando historial completo de Forum'})
 
             if entrar_a_expediente(driver, nro):
-                nuevos = sincronizar_pdfs(driver, ruta, config.TEMP_DOWNLOAD_PATH, fecha_desde=None)
-                pdfs_descargados += nuevos
-                if nuevos > 0:
-                    exptes_sincronizados += 1
-                    socketio.emit('bot_status', {'msg': f'✅ {nro}: {nuevos} PDFs nuevos', 'progreso': progreso})
-                else:
-                    exptes_sin_novedades += 1
-                    socketio.emit('bot_status', {'msg': f'📭 {nro}: Sin novedades', 'progreso': progreso})
+
+             nuevos = sincronizar_pdfs(
+                driver,
+                ruta,
+                config.TEMP_DOWNLOAD_PATH,
+                fecha_desde=None
+            )
+
+            pdfs_descargados += nuevos
+
+            # ============================================================
+            # NUEVO — MARCAR COMO SINCRONIZADO
+            # ============================================================
+            with app.app_context():
+
+                causa_db = db.session.get(CausaInfo, causa["id"])
+
+                if causa_db:
+                    causa_db.necesita_sync = False
+                    causa_db.estado_sync = "sincronizado"
+                    causa_db.ultima_sync = datetime.utcnow()
+                    causa_db.error_sync = None
+
+                    db.session.commit()
+
+            if nuevos > 0:
+
+                exptes_sincronizados += 1
+
+                socketio.emit('bot_status', {
+                    'msg': f'✅ {nro}: {nuevos} PDFs nuevos',
+                    'progreso': progreso
+                })
+
             else:
-                exptes_no_encontrados += 1
-                socketio.emit('bot_status', {'msg': f'⚠️ No se encontró {nro} en Forum', 'progreso': progreso})
+
+                exptes_sin_novedades += 1
+
+                socketio.emit('bot_status', {
+                    'msg': f'📭 {nro}: Sin novedades',
+                    'progreso': progreso
+                })
+
+        else:
+
+            exptes_no_encontrados += 1
+
+            # ============================================================
+            # NUEVO — GUARDAR ERROR
+            # ============================================================
+            with app.app_context():
+
+                causa_db = db.session.get(CausaInfo, causa["id"])
+
+                if causa_db:
+                    causa_db.estado_sync = "error"
+                    causa_db.error_sync = "No encontrado en Forum"
+                    causa_db.ultima_sync = datetime.utcnow()
+
+                    db.session.commit()
+
+            socketio.emit('bot_status', {
+                'msg': f'⚠️ No se encontró {nro} en Forum',
+                'progreso': progreso
+            })
 
         tiempo_total = int(time.time() - t0)
         mins = tiempo_total // 60
@@ -239,6 +322,7 @@ def ejecutar_completar_historial(usuario_id, usuario_nombre, socketio, app, max_
                         "juzgado":    juzgado or "SIN JUZGADO",
                         "secretaria": secretaria or "SIN SECRETARIA",
                         "localidad":  e.get("localidad", "Capital"),
+                        "cantidad": e.get("cantidad"),
                     })
         else:
             # Sin lista: usar toda la DB
@@ -267,6 +351,7 @@ def ejecutar_completar_historial(usuario_id, usuario_nombre, socketio, app, max_
         for idx, causa in enumerate(lista_causas):
             nro      = causa["numero"]
             tipo     = causa.get("tipo", "")
+            cantidad = causa.get("cantidad")
             progreso = int(((idx + 1) / total) * 70) + 25
 
             socketio.emit('bot_status', {
@@ -301,10 +386,42 @@ def ejecutar_completar_historial(usuario_id, usuario_nombre, socketio, app, max_
             print(f"  → {nro}: localidad={localidad_expte}, causa keys={list(causa.keys())}")
             if entrar_a_expediente(driver, nro, tipo_codigo=tipo if tipo else None, localidad=localidad_expte):
                 nuevos = sincronizar_pdfs(
-                    driver, ruta, config.TEMP_DOWNLOAD_PATH,
-                    cortar_si_existe=True
-                )
+                driver,
+                ruta,
+                config.TEMP_DOWNLOAD_PATH,
+                cortar_si_existe=False,
+                max_descargas=cantidad
+            )
                 pdfs_descargados += nuevos
+                # ============================================================
+                # ACTUALIZAR ESTADO POST-COMPLETAR
+                # ============================================================
+                with app.app_context():
+                    causa_db = CausaInfo.query.filter(
+                        CausaInfo.numero == nro,
+                        CausaInfo.usuario_id == usuario_id
+                    ).first()
+
+                    if causa_db:
+                        total_local = len([
+                            f for f in os.listdir(ruta)
+                            if f.lower().endswith(".pdf")
+                        ])
+
+                        causa_db.paginas_descargadas_total = total_local
+
+                        if total_local >= (causa_db.paginas_forum_total or 0):
+                            causa_db.estado_sync = "sincronizado"
+                            causa_db.necesita_sync = False
+                            causa_db.error_sync = None
+                        else:
+                            causa_db.estado_sync = "parcial"
+                            causa_db.necesita_sync = True
+                            causa_db.error_sync = "Sincronización parcial; falta completar historial"
+
+                        causa_db.ultima_sync = datetime.utcnow()
+                        db.session.commit()
+
                 if nuevos > 0:
                     exptes_procesados += 1
                     socketio.emit('bot_status', {
