@@ -366,6 +366,32 @@
             .sidebar { position: relative; width: 100%; top: 0; height: auto; }
             #panel-detalle { right: 0; }
         }
+        .btn-modal-sync {
+            padding: 10px;
+            background: #00bcd4;
+            border: none;
+            color: #000;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.74rem;
+            font-weight: 700;
+            font-family: var(--mono);
+        }
+
+        .btn-modal-sync:hover {
+            filter: brightness(1.12);
+        }
+
+        .btn-modal-sync.btn-sec {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border2);
+        }
+
+        .btn-modal-sync.btn-sec:hover {
+            color: var(--text-bright);
+            border-color: var(--blue);
+        }
     </style>
 </head>
 <body>
@@ -712,12 +738,21 @@
 
         function _estadoSyncCard(card) {
             if (!card) return '';
+
             var badge = card.querySelector('.sync-badge');
             if (!badge) return '';
+
             var t = (badge.textContent || '').toLowerCase();
+
             if (t.includes('pend')) return 'pendiente';
+
+            if (t.includes('parcial')) return 'pendiente';
+
             if (t.includes('error')) return 'error';
-            if (t.includes('ok') || t.includes('sinc')) return 'sincronizado';
+
+            if (t.includes('ok') || t.includes('sinc'))
+                return 'sincronizado';
+
             return '';
         }
 
@@ -793,7 +828,17 @@ function procesarDataBot(data) {
 
 socket.on('status_update', procesarDataBot);
 socket.on('bot_status', procesarDataBot);
+socket.on('clasificacion_completa', function(data) {
 
+    window.__ultimoLoteClasificado = data.lote || null;
+
+    console.log(
+        '[LOTE CLASIFICADO]',
+        window.__ultimoLoteClasificado
+    );
+
+    mostrarModalSincronizarCamada(data);
+});
 socket.on('actualizacion_completa', function(data) {
     
     console.log('DEBUG tarjetas:', document.querySelectorAll('.expte-card').length);
@@ -1133,8 +1178,9 @@ socket.on('bot_finished', function() {
 
         // ── Bots ──────────────────────────────────────────────
         function iniciarClasificador()  { if(confirm('¿Iniciar clasificación?'))  { document.getElementById('monitor-proceso').style.display='block'; fetch('/run_clasificador',{method:'POST'}); } }
-        function iniciarSincronizador() { if(confirm('¿Iniciar sincronización de pendientes?')) { document.getElementById('monitor-proceso').style.display='block'; fetch('/run_sincronizador',{method:'POST'}); } }
-
+        function iniciarSincronizador() {
+            mostrarModalCantidadSync('todos', []);
+        }
         function marcarCardSeleccionada(chk) {
             var card = chk.closest('.expte-card');
             if (!card) return;
@@ -1159,33 +1205,127 @@ socket.on('bot_finished', function() {
                 return;
             }
 
-            if (!confirm('¿Sincronizar ' + expedientes.length + ' expediente(s) seleccionado(s)?')) {
-                return;
+            mostrarModalCantidadSync('seleccionados', expedientes);
+        }
+        
+
+        function mostrarModalCantidadSync(modo, expedientes) {
+            var modalExistente = document.getElementById('modal-cantidad-sync');
+            if (modalExistente) {
+                document.body.removeChild(modalExistente);
             }
+
+            var titulo = '📥 SINCRONIZAR PENDIENTES';
+            var texto = 'Elegí cuántas actuaciones querés descargar por expediente.';
+
+            if (modo === 'seleccionados') {
+                titulo = '☑ SINCRONIZAR SELECCIONADOS';
+                texto = 'Seleccionaste ' + expedientes.length + ' expediente(s). Elegí cuántas actuaciones descargar de cada uno.';
+            }
+
+            var modal = document.createElement('div');
+            modal.id = 'modal-cantidad-sync';
+            modal.style.cssText =
+                'position:fixed;' +
+                'top:0;' +
+                'left:0;' +
+                'width:100%;' +
+                'height:100%;' +
+                'background:rgba(0,0,0,0.82);' +
+                'z-index:9999;' +
+                'display:flex;' +
+                'align-items:center;' +
+                'justify-content:center;';
+
+            modal.innerHTML =
+                '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:28px;width:440px;font-family:var(--mono);">' +
+
+                    '<div style="color:#00bcd4;font-size:0.85rem;font-weight:700;margin-bottom:8px;">' +
+                        titulo +
+                    '</div>' +
+
+                    '<div style="color:var(--text);font-size:0.78rem;margin-bottom:20px;line-height:1.6;">' +
+                        texto +
+                        '<br><span style="color:var(--text-dim);font-size:0.68rem;">Si un expediente tiene menos actuaciones, se descargan las disponibles y queda OK.</span>' +
+                    '</div>' +
+
+                    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+
+                        '<button onclick="confirmarSyncCantidad(\''+modo+'\', 5)" class="btn-modal-sync">' +
+                            'Últimas 5' +
+                        '</button>' +
+
+                        '<button onclick="confirmarSyncCantidad(\''+modo+'\', 10)" class="btn-modal-sync">' +
+                            'Últimas 10' +
+                        '</button>' +
+
+                        '<button onclick="confirmarSyncCantidad(\''+modo+'\', \'todas\')" class="btn-modal-sync">' +
+                            'Todas' +
+                        '</button>' +
+
+                        '<button onclick="cerrarModalCantidadSync()" class="btn-modal-sync btn-sec">' +
+                            'Cancelar' +
+                        '</button>' +
+
+                    '</div>' +
+
+                '</div>';
+
+            document.body.appendChild(modal);
+
+            window.__syncModoActual = modo;
+            window.__syncExpedientesActuales = expedientes || [];
+        }
+
+
+        function cerrarModalCantidadSync() {
+            var modal = document.getElementById('modal-cantidad-sync');
+
+            if (modal) {
+                document.body.removeChild(modal);
+            }
+        }
+
+
+        function confirmarSyncCantidad(modo, cantidad) {
+            cerrarModalCantidadSync();
 
             document.getElementById('monitor-proceso').style.display = 'block';
 
-            fetch('/run_sincronizador_selectivo', {
+            fetch('/run_sincronizar_con_cantidad', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ expedientes: expedientes })
+                body: JSON.stringify({
+                    modo: modo,
+                    cantidad: cantidad,
+                    expedientes: window.__syncExpedientesActuales || [],
+                    lote: window.__ultimoLoteClasificado || null
+                })
             })
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                if (!data.success) {
-                    alert(data.message || 'No se pudo iniciar la sincronización selectiva.');
+                if (!data.success && !data.ok) {
+                    alert(data.message || 'No se pudo iniciar la sincronización.');
                 }
             })
             .catch(function(err) {
-                alert('Error iniciando sincronización selectiva: ' + err);
+                alert('Error iniciando sincronización: ' + err);
             });
         }
 
-        function seleccionarPendientesSync() {
+       function seleccionarPendientesSync() {
             document.querySelectorAll('.chk-sync').forEach(function(chk) {
                 var card = chk.closest('.expte-card');
                 if (!card) return;
-                chk.checked = card.dataset.syncPendiente === '1' || card.dataset.syncEstado === 'error';
+
+                var estado = (card.dataset.syncEstado || '').toLowerCase();
+
+                chk.checked =
+                    estado === 'pendiente' ||
+                    estado === 'parcial' ||
+                    card.dataset.syncPendiente === '1' ||
+                    estado === 'error';
+
                 marcarCardSeleccionada(chk);
             });
         }
@@ -1295,6 +1435,103 @@ socket.on('bot_finished', function() {
                 fetch('/run_auditoria', {method:'POST', body:fd});
             };
         }
+
+       function mostrarModalSincronizarCamada(data) {
+    var modalExistente = document.getElementById('modal-sync-camada');
+    if (modalExistente) {
+        document.body.removeChild(modalExistente);
+    }
+
+    window.__ultimoLoteClasificado = data.lote || null;
+    window.__syncModoActual = 'todos';
+    window.__syncExpedientesActuales = [];
+
+    console.log('[MODAL CAMADA] lote recibido:', window.__ultimoLoteClasificado);
+
+    var modal = document.createElement('div');
+    modal.id = 'modal-sync-camada';
+    modal.style.cssText =
+        'position:fixed;' +
+        'top:0;' +
+        'left:0;' +
+        'width:100%;' +
+        'height:100%;' +
+        'background:rgba(0,0,0,0.82);' +
+        'z-index:9999;' +
+        'display:flex;' +
+        'align-items:center;' +
+        'justify-content:center;';
+
+    modal.innerHTML =
+        '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:28px;width:440px;font-family:var(--mono);">' +
+
+            '<div style="color:#00bcd4;font-size:0.85rem;font-weight:700;margin-bottom:8px;">' +
+                '📚 SINCRONIZAR CAMADA IMPORTADA' +
+            '</div>' +
+
+            '<div style="color:var(--text);font-size:0.78rem;margin-bottom:20px;line-height:1.6;">' +
+                'Se clasificaron <strong style="color:var(--blue);">' + data.total + '</strong> expedientes.<br>' +
+                'Lote: <strong style="color:var(--amber);">' + (data.lote || 'SIN LOTE') + '</strong><br>' +
+                '¿Cuántas actuaciones querés descargar de cada expediente?' +
+            '</div>' +
+
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+
+                '<button onclick="confirmarSyncCantidad(\'todos\', 5)" class="btn-modal-sync">' +
+                    'Últimas 5' +
+                '</button>' +
+
+                '<button onclick="confirmarSyncCantidad(\'todos\', 10)" class="btn-modal-sync">' +
+                    'Últimas 10' +
+                '</button>' +
+
+                '<button onclick="confirmarSyncCantidad(\'todos\', \'todas\')" class="btn-modal-sync">' +
+                    'Todas' +
+                '</button>' +
+
+                '<button onclick="cerrarModalCamada()" class="btn-modal-sync btn-sec">' +
+                    'Elegir después' +
+                '</button>' +
+
+            '</div>' +
+
+        '</div>';
+
+    document.body.appendChild(modal);
+}
+
+
+        function cerrarModalCamada() {
+            var modal = document.getElementById('modal-sync-camada');
+
+            if (modal) {
+                document.body.removeChild(modal);
+            }
+
+            location.reload();
+        }
+
+
+       function sincronizarCamada(cantidad) {
+
+            var modal = document.getElementById('modal-sync-camada');
+
+            if (modal) {
+                modal.remove();
+            }
+
+            document.getElementById('monitor-proceso').style.display = 'block';
+
+            var fd = new FormData();
+            fd.append('cantidad', cantidad);
+
+            fetch('/run_sincronizar_camada', {
+                method: 'POST',
+                body: fd
+            });
+        }
+
+
 
         // ── Filtro ────────────────────────────────────────────
         function filtrarExpedientes() {

@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>LexView Pro - Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#007bff">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <style>
+        :root {
+            --blue: #2979ff; --blue-dim: rgba(41,121,255,0.12);
+            --red: #ff4d4d; --green: #00e676; --green-dim: rgba(0,230,118,0.1);
+            --purple: #7c4dff; --amber: #ffab00;
+            --bg: #080b0f; --surface: #0e1218; --surface2: #141920;
+            --border: #1e2530; --border2: #252d3a;
+            --text: #c9d1d9; --text-dim: #586069; --text-bright: #e6edf3;
+            --mono: 'JetBrains Mono', monospace; --sans: 'Inter', sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; overflow-x: hidden; }
+
+        nav { display: flex; align-items: center; padding: 0 20px; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 1000; height: 52px; gap: 10px; }
+        .nav-brand { font-family: var(--mono); font-weight: 700; font-size: 1rem; color: var(--blue); letter-spacing: 2px; white-space: nowrap; border-right: 1px solid var(--border); padding-right: 16px; margin-right: 4px; }
+        .search-wrap { flex: 1; max-width: 380px; position: relative; }
+        .search-wrap input { width: 100%; background: var(--bg); border: 1px solid var(--border2); color: var(--text-bright); padding: 7px 14px 7px 34px; border-radius: 6px; font-size: 0.8rem; font-family: var(--mono); outline: none; transition: border-color 0.2s; }
+        .search-wrap input:focus { border-color: var(--blue); }
+        .search-wrap::before { content: '⌕'; position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-dim); font-size: 1rem; pointer-events: none; }
+        .nav-btn { display: flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 6px; border: none; font-size: 0.76rem; font-weight: 600; cursor: pointer; transition: all 0.15s; white-space: nowrap; font-family: var(--sans); }
+        .nav-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+        .btn-purple { background: var(--purple); color: #fff; }
+        .btn-amber  { background: var(--amber);  color: #000; }
+        .btn-teal   { background: #00bcd4;        color: #000; }
+        .btn-pink   { background: #e91e63;        color: #fff; }
+        .btn-vista  { background: transparent; color: var(--text-dim); border: 1px solid var(--border2) !important; font-family: var(--mono); font-size: 0.72rem; }
+        .btn-vista:hover { color: var(--text-bright); border-color: var(--blue) !important; }
+        .btn-vista.activo { color: var(--blue); border-color: var(--blue) !important; }
+        .nav-user { font-size: 0.76rem; color: var(--text-dim); white-space: nowrap; border-left: 1px solid var(--border); padding-left: 12px; margin-left: 2px; }
+        .nav-user strong { color: var(--text-bright); }
+        .nav-user a { color: var(--red); text-decoration: none; }
+        .plan-badge { padding: 2px 8px; border-radius: 20px; font-size: 0.62rem; font-weight: 700; font-family: var(--mono); letter-spacing: 1px; margin-left: 6px; }
+
+        .main-layout { display: flex; min-height: calc(100vh - 52px); }
+        .content-area { flex: 1; padding-right: 310px; min-width: 0; transition: padding-right 0.3s; }
+
+        #contenedor-barra { background: var(--surface); height: 26px; display: none; position: relative; overflow: hidden; }
+        #barra-progreso { background: var(--blue); height: 100%; transition: width 0.4s ease; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 0.62rem; font-family: var(--mono); color: #fff; font-weight: 700; }
+        #monitor-proceso { background: #000; color: var(--green); font-family: var(--mono); font-size: 0.7rem; padding: 10px 14px; border-bottom: 1px solid var(--border); min-height: 110px; max-height: 160px; overflow-y: auto; display: none; }
+        #monitor-proceso::-webkit-scrollbar { width: 3px; }
+        #monitor-proceso::-webkit-scrollbar-thumb { background: #1e2530; }
+
+        .juzgado-seccion { border-bottom: 1px solid var(--border); }
+        .juzgado-seccion summary { display: flex; align-items: center; gap: 12px; padding: 12px 20px; cursor: pointer; list-style: none; background: var(--surface); user-select: none; transition: background 0.15s; }
+        .juzgado-seccion summary:hover { background: var(--surface2); }
+        .juzgado-seccion[open] summary { border-bottom: 1px solid var(--border); }
+        .juzgado-nombre { font-family: var(--mono); font-size: 0.8rem; font-weight: 600; color: var(--text-bright); letter-spacing: 0.5px; flex: 1; }
+        .badge-exptes { background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(41,121,255,0.3); padding: 2px 8px; border-radius: 20px; font-size: 0.66rem; font-family: var(--mono); font-weight: 600; }
+        .chevron { color: var(--text-dim); font-size: 0.65rem; transition: transform 0.2s; }
+        .juzgado-seccion[open] .chevron { transform: rotate(90deg); }
+        .sec-header { padding: 6px 20px; font-size: 0.68rem; color: var(--text-dim); font-family: var(--mono); letter-spacing: 1px; border-bottom: 1px solid var(--border); background: var(--bg); grid-column: 1 / -1; }
+
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; padding: 14px 18px; background: var(--bg); }
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 13px; cursor: pointer; transition: border-color 0.15s; position: relative; overflow: hidden; }
+        .card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--border2); transition: background 0.15s; border-radius: 3px 0 0 3px; }
+        .card:hover::before { background: var(--blue); }
+        .card.active { border-color: var(--blue); }
+        .card.active::before { background: var(--blue); }
+        .expte-num { font-family: var(--mono); font-size: 0.86rem; font-weight: 700; color: var(--blue); margin-bottom: 5px; }
+        .expte-caratula { font-size: 0.76rem; color: var(--text); line-height: 1.3; margin-bottom: 8px; }
+        .expte-meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.66rem; }
+        .expte-notif { color: var(--text-dim); }
+        .expte-notif span { color: var(--text); }
+        .expte-estado { font-family: var(--mono); font-size: 0.62rem; font-weight: 600; color: var(--green); background: var(--green-dim); padding: 2px 6px; border-radius: 3px; max-width: 135px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+        .detalle-causa { display: none; }
+
+        .vista-lista .grid-container { display: flex; flex-direction: column; gap: 0; padding: 0; }
+        .vista-lista .sec-header { border-top: 1px solid var(--border); }
+        .vista-lista .card { border-radius: 0; border-left: none; border-right: none; border-top: none; border-bottom: 1px solid var(--border); padding: 0; background: var(--bg); }
+        .vista-lista .card::before { display: none; }
+        .card-row { display: grid; grid-template-columns: 108px 1fr 105px 185px; align-items: center; padding: 9px 18px; min-height: 40px; transition: background 0.1s; cursor: pointer; }
+        .vista-lista .card:hover .card-row { background: var(--surface); }
+        .vista-lista .card.active .card-row { background: rgba(41,121,255,0.06); border-left: 2px solid var(--blue); padding-left: 16px; }
+        .vista-lista .expte-num { font-size: 0.78rem; margin: 0; }
+        .row-caratula { font-size: 0.74rem; color: var(--text-dim); padding: 0 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .row-notif { font-size: 0.64rem; color: var(--text-dim); text-align: center; }
+        .row-estado { font-family: var(--mono); font-size: 0.61rem; font-weight: 600; color: var(--green); background: var(--green-dim); padding: 2px 6px; border-radius: 3px; max-width: 185px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; margin-left: auto; }
+        .lista-col-header { display: none; grid-template-columns: 108px 1fr 105px 185px; padding: 5px 18px; background: var(--surface); border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 0.58rem; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; position: sticky; top: 52px; z-index: 50; }
+        .vista-lista .lista-col-header { display: grid; }
+        .lista-col-header span:nth-child(3) { text-align: center; }
+        .lista-col-header span:nth-child(4) { text-align: right; }
+
+        #panel-detalle {
+            position: fixed; right: 310px; top: 52px;
+            width: 380px; height: calc(100vh - 52px);
+            background: var(--surface); border-left: 1px solid var(--border);
+            z-index: 800; transform: translateX(100%);
+            transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+        #panel-detalle.abierto { transform: translateX(0); }
+        .panel-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 10px; background: var(--surface2); }
+        .panel-nro { font-family: var(--mono); font-size: 1rem; font-weight: 700; color: var(--blue); }
+        .panel-caratula { font-size: 0.74rem; color: var(--text); line-height: 1.35; margin-top: 3px; flex: 1; }
+        .panel-cerrar { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 1.1rem; padding: 2px 4px; border-radius: 4px; transition: color 0.15s; flex-shrink: 0; }
+        .panel-cerrar:hover { color: var(--red); }
+        .panel-acciones { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; }
+        .btn-libro-panel { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px; background: var(--blue); color: #fff; border-radius: 6px; text-decoration: none; font-size: 0.76rem; font-weight: 600; transition: filter 0.15s; }
+        .btn-libro-panel:hover { filter: brightness(1.1); }
+        .panel-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
+        .panel-body::-webkit-scrollbar { width: 3px; }
+        .panel-body::-webkit-scrollbar-thumb { background: var(--border2); }
+        .panel-section { margin-bottom: 14px; }
+        .panel-section-title { font-family: var(--mono); font-size: 0.6rem; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+        .panel-nota { width: 100%; height: 72px; background: var(--bg); color: var(--text-bright); border: 1px solid var(--border2); border-radius: 5px; padding: 7px 9px; font-size: 0.74rem; font-family: var(--sans); resize: none; outline: none; transition: border-color 0.2s; }
+        .panel-nota:focus { border-color: var(--blue); }
+        .panel-pdf-item { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 0.68rem; color: var(--text); }
+        .panel-pdf-item:last-child { border: none; }
+        .panel-pdf-del { color: var(--text-dim); cursor: pointer; padding: 0 4px; opacity: 0.5; }
+        .panel-pdf-del:hover { opacity: 1; color: var(--red); }
+        .btn-subir-panel { font-size: 0.62rem; padding: 2px 8px; background: transparent; color: var(--blue); border: 1px solid var(--blue); border-radius: 4px; cursor: pointer; font-family: var(--mono); transition: background 0.15s; }
+        .btn-subir-panel:hover { background: var(--blue-dim); }
+        .panel-vence-row { display: flex; gap: 5px; margin-top: 6px; }
+        .panel-vence-row input { background: var(--bg); border: 1px solid var(--border2); color: var(--text-bright); border-radius: 4px; padding: 6px 7px; font-size: 0.7rem; outline: none; }
+        .panel-vence-row input:first-child { flex: 0 0 96px; }
+        .panel-vence-row input:nth-child(2) { flex: 1; }
+        .btn-ok-panel { background: var(--red); color: #fff; border: none; border-radius: 4px; padding: 6px 10px; font-size: 0.7rem; font-weight: 700; cursor: pointer; }
+
+        .sidebar { width: 310px; background: var(--surface); border-left: 1px solid var(--border); position: fixed; right: 0; top: 52px; height: calc(100vh - 52px); padding: 14px; overflow-y: auto; z-index: 900; }
+        .sidebar::-webkit-scrollbar { width: 3px; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--border2); }
+        .sidebar-section { margin-bottom: 18px; }
+        .sidebar-title { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 1.5px; color: var(--text-dim); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+        .import-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 11px; margin-bottom: 18px; }
+        .import-box p { font-size: 0.7rem; color: var(--text-dim); margin: 7px 0 10px; line-height: 1.5; }
+        .btn-import { display: block; width: 100%; padding: 8px; background: var(--blue); color: #fff; border: none; border-radius: 6px; font-size: 0.76rem; font-weight: 600; cursor: pointer; text-align: center; transition: filter 0.15s; }
+        .btn-import:hover { filter: brightness(1.1); }
+        .vence-item { background: var(--bg); border-left: 3px solid var(--red); border-radius: 0 6px 6px 0; padding: 7px 10px; margin-bottom: 5px; position: relative; }
+        .vence-fecha { font-size: 0.6rem; color: var(--text-dim); font-family: var(--mono); }
+        .vence-titulo { font-size: 0.73rem; color: var(--text-bright); margin-top: 2px; }
+        .vence-del { position: absolute; top: 5px; right: 8px; color: var(--text-dim); text-decoration: none; font-size: 0.95rem; }
+        .vence-del:hover { color: var(--red); }
+        .nota-item { display: flex; justify-content: space-between; align-items: center; background: var(--bg); border-left: 3px solid var(--green); border-radius: 0 6px 6px 0; padding: 6px 10px; margin-bottom: 4px; }
+        .nota-fecha { color: var(--green); font-weight: 600; font-family: var(--mono); font-size: 0.68rem; }
+        .nota-texto { font-size: 0.7rem; color: var(--text); margin-left: 6px; }
+        .nota-del { color: var(--text-dim); text-decoration: none; font-size: 0.85rem; }
+        .nota-del:hover { color: var(--red); }
+        .cal-box { background: var(--bg); border-radius: 8px; padding: 10px; border: 1px solid var(--border); margin-bottom: 10px; }
+        .cal-table { width: 100%; text-align: center; border-collapse: separate; border-spacing: 3px; }
+        .cal-table th { font-size: 0.62rem; color: var(--text-dim); font-family: var(--mono); padding: 3px; }
+        .cal-table td { cursor: pointer; height: 28px; border-radius: 4px; font-size: 0.73rem; color: var(--text-dim); transition: 0.15s; }
+        .cal-table td:hover { background: var(--surface2); color: var(--text-bright); }
+        .dia-calendario.tiene-agenda { background: rgba(0,230,118,0.2) !important; color: var(--green) !important; font-weight: 700; }
+        .dia-calendario.tiene-vencimiento { background: rgba(255,77,77,0.2) !important; color: var(--red) !important; font-weight: 700; }
+        .dia-calendario.hoy { outline: 1px solid var(--blue); color: var(--blue) !important; font-weight: 700; }
+        .agenda-form { border: 1px solid var(--border); border-radius: 8px; padding: 11px; margin-top: 12px; }
+        .agenda-form summary { color: var(--green); cursor: pointer; font-size: 0.76rem; font-family: var(--mono); }
+        .agenda-form input { width: 100%; background: var(--bg); border: 1px solid var(--border2); color: var(--text-bright); border-radius: 5px; padding: 7px 8px; font-size: 0.73rem; outline: none; margin-top: 7px; }
+        .btn-guardar { width: 100%; padding: 8px; background: var(--green); color: #000; border: none; border-radius: 5px; font-size: 0.76rem; font-weight: 700; cursor: pointer; margin-top: 7px; }
+        .evento-detalle { background: var(--bg); border-left: 3px solid var(--green); border-radius: 0 6px 6px 0; padding: 7px 10px; margin-bottom: 10px; display: none; }
+
+
+        /* ══ SELECCIÓN / ESTADO DE SINCRONIZACIÓN ══ */
+        .card-selector {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            z-index: 6;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(8,11,15,0.88);
+            border: 1px solid var(--border2);
+            border-radius: 7px;
+            padding: 4px 6px;
+        }
+        .card-selector input[type="checkbox"] {
+            width: 15px;
+            height: 15px;
+            cursor: pointer;
+            accent-color: var(--blue);
+        }
+        .sync-badge {
+            font-family: var(--mono);
+            font-size: 0.55rem;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+            border-radius: 4px;
+            padding: 2px 5px;
+            white-space: nowrap;
+        }
+        .sync-pendiente {
+            color: #000;
+            background: var(--amber);
+        }
+        .sync-ok {
+            color: #000;
+            background: var(--green);
+        }
+        .sync-error {
+            color: #fff;
+            background: var(--red);
+        }
+        .sync-none {
+            color: var(--text-dim);
+            background: var(--surface2);
+        }
+        .expte-card.seleccionado-sync {
+            border-color: var(--amber) !important;
+            box-shadow: 0 0 0 1px rgba(255,171,0,0.35), 0 0 14px rgba(255,171,0,0.18);
+        }
+        .vista-lista .card-selector {
+            top: 50%;
+            right: 10px;
+            transform: translateY(-50%);
+        }
+        .vista-lista .row-estado {
+            margin-right: 72px;
+        }
+
+        .trial-aviso { position: fixed; bottom: 16px; right: 326px; background: #ff9800; color: #000; padding: 8px 14px; border-radius: 8px; font-size: 0.72rem; font-weight: 700; z-index: 9999; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+
+        @media (max-width: 1100px) {
+            .content-area { padding-right: 0; }
+            .sidebar { position: relative; width: 100%; top: 0; height: auto; }
+            #panel-detalle { right: 0; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Variable del plan inyectada desde Flask -->
+    <script>const PLAN = '{{ plan }}';</script>
+    <!-- MODAL RECUPERAR CARÁTULAS -->
+    <div id="modal-caratulas-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center;">
+        <div style="background:var(--surface); border:1px solid var(--border2); border-radius:10px; width:500px; max-width:95vw; max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
+            <div style="padding:16px 20px; border-bottom:1px solid var(--border2); display:flex; justify-content:space-between; align-items:center;">
+                <div style="color:#ce93d8; font-size:0.85rem; font-weight:700; font-family:var(--mono);">🏷️ RECUPERAR CARÁTULAS</div>
+                <span style="cursor:pointer; color:#555;" onclick="cerrarModalCaratulas()">✕</span>
+            </div>
+            <div id="modal-caratulas-body" style="flex:1; overflow-y:auto; padding:20px;">
+                <div style="color:var(--text-dim); font-size:0.78rem; text-align:center; padding:20px;">
+                    Cargando juzgados...
+                </div>
+            </div>
+            <div style="padding:12px 20px; border-top:1px solid var(--border2); display:flex; gap:10px; justify-content:flex-end;">
+                <button onclick="cerrarModalCaratulas()" 
+                    style="padding:8px 16px; background:transparent; border:1px solid var(--border2); color:var(--text); border-radius:5px; cursor:pointer; font-size:0.78rem;">
+                    Cancelar
+                </button>
+                <button id="btn-confirmar-caratulas" onclick="confirmarRecuperarCaratulas()"
+                    style="padding:8px 20px; background:#6a1b9a; border:none; color:#fff; border-radius:5px; cursor:pointer; font-size:0.78rem; font-weight:700;">
+                    Iniciar recuperación
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <nav>
+        <div class="nav-brand">LEXVIEW PRO</div>
+        <div class="search-wrap">
+            <input type="text" id="globalSearch" placeholder="Buscar expediente o carátula..." onkeyup="filtrarExpedientes()">
+        </div>
+        <button class="nav-btn btn-vista" onclick="alternarVista()" id="btn-vista">☰ Lista</button>
+        <button class="nav-btn btn-purple" onclick="iniciarClasificador()">📂 CLASIFICAR</button>
+        <button class="nav-btn btn-amber"  onclick="iniciarSincronizador()">📥 SINCRONIZAR</button>
+        <button class="nav-btn" style="background:#00695c;color:#fff;" onclick="sincronizarSeleccionados()">☑ SINC. SELECC.</button>
+        <button class="nav-btn btn-teal"   onclick="iniciarActualizador()">🔔 ACTUALIZAR</button>
+        <button class="btn-accion" style="background:#6a1b9a; border-color:#8e24aa;" 
+            onclick="abrirModalRecuperarCaratulas()">
+            🏷️ CARÁTULAS
+        </button>
+        {% if plan in ['pro', 'premium', 'dev'] %}
+        <button class="nav-btn" style="background:#00897b;color:#fff;" onclick="iniciarCompletarHistorial()">📚 COMPLETAR</button>
+        <button class="nav-btn btn-pink"   onclick="iniciarAuditoria()">🔎 AUDITORÍA</button>
+        <button class="nav-btn" id="btn-nuevos" style="background:#1a3a1a;color:#00e676;border:1px solid #00e676;" onclick="filtrarNuevos()">🔔 NUEVOS</button>
+        {% endif %}
+        <div class="nav-user">
+            Dr/a. <strong>{{ usuario }}</strong>
+            <span class="plan-badge" id="plan-badge"></span>
+            | <a href="/logout">CERRAR</a>
+        </div>
+    </nav>
+
+    <div id="contenedor-barra"><div id="barra-progreso"></div></div>
+    <div id="monitor-proceso"><div style="color:#1e2530; border-bottom:1px solid #1e2530; margin-bottom:5px; padding-bottom:3px; font-size:0.68rem;">▶ LEXVIEW TERMINAL v2.7</div></div>
+
+    {% if plan == 'trial' %}
+    <div class="trial-aviso">⚠️ MODO TRIAL — Máx. 5 expedientes por actualización</div>
+    {% endif %}
+
+    <div id="panel-detalle">
+        <div class="panel-header">
+            <div style="flex:1;">
+                <div class="panel-nro" id="panel-nro">—</div>
+                <div class="panel-caratula" id="panel-caratula">—</div>
+            </div>
+            <button class="panel-cerrar" onclick="cerrarPanel()">✕</button>
+        </div>
+        <div class="panel-acciones">
+            <a href="#" id="panel-link-libro" class="btn-libro-panel" target="_blank">📖 ABRIR LIBRO DIGITAL</a>
+        </div>
+        <div class="panel-body">
+            <div class="panel-section">
+                <div class="panel-section-title">NOTA DEL ABOGADO</div>
+                <textarea class="panel-nota" id="panel-nota" onchange="guardarNotaDesdePanel()" placeholder="Anotá lo que hay que hacer..."></textarea>
+            </div>
+            <div class="panel-section">
+                <div class="panel-section-title">
+                    <span>ARCHIVOS EN CARPETA</span>
+                    <button class="btn-subir-panel" id="panel-btn-subir">+ Subir PDF</button>
+                </div>
+                <div id="panel-pdf-lista" style="max-height:150px; overflow-y:auto;"></div>
+            </div>
+            <div class="panel-section">
+                <div class="panel-section-title">AGENDAR VENCIMIENTO</div>
+                <div class="panel-vence-row">
+                    <input type="date" id="panel-fecha-vence">
+                    <input type="text" id="panel-titulo-vence" placeholder="¿Qué vence?">
+                    <button class="btn-ok-panel" onclick="guardarVencimientoDesdePanel()">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-layout">
+        <div class="content-area" id="content-area">
+            {% for grupo in estructura %}
+            <details class="juzgado-seccion">
+                <summary>
+                    <span style="font-size:0.95rem; opacity:0.5;">🏛</span>
+                    <span class="juzgado-nombre">{{ grupo.nombre_juzgado|upper }}</span>
+                    <span class="badge-exptes">{{ grupo.total_exptes }}</span>
+                    <span class="chevron">▶</span>
+                </summary>
+                <div class="lista-col-header">
+                    <span onclick="ordenarPor('nro')" style="cursor:pointer;">EXPEDIENTE</span>
+                    <span onclick="ordenarPor('caratula')" style="cursor:pointer;">CARÁTULA</span>
+                    <span onclick="ordenarPor('notif')" style="cursor:pointer;text-align:center;">NOTIF.</span>
+                    <span style="text-align:right;">ÚLTIMO ESTADO</span>
+                </div>
+                <div class="grid-container">
+                    {% for sec in grupo.secretarias %}
+                    <div class="sec-header">⚖ {{ sec.nombre|upper }}</div>
+                    {% for expte in sec.expedientes %}
+                    <div class="card expte-card"
+                         data-nombre="{{ expte.numero }}{% if expte.info and expte.info.demandado %} {{ expte.info.demandado }}{% endif %}"
+                         data-nro="{{ expte.numero }}"
+                         data-caratula="{{ expte.info.demandado|upper if expte.info else 'SIN CLASIFICAR' }}"
+                         data-notif="{{ expte.info.ultima_notificacion or '—' if expte.info else '—' }}"
+                         data-estado="{{ (expte.estado_archivo or (expte.info.estado if expte.info else '') or 'EN TRÁMITE')|truncate(35)|upper }}"
+                         data-causa-id="{{ expte.info.id if expte.info else '' }}"
+                         data-sync-estado="{{ expte.info.estado_sync if expte.info and expte.info.estado_sync else 'sin_info' }}"
+                         data-sync-pendiente="{{ '1' if expte.info and expte.info.necesita_sync else '0' }}"
+                         data-juzgado="{{ grupo.nombre_juzgado }}"
+                         data-secretaria="{{ sec.nombre }}"
+                         data-visor="/visor/{{ grupo.nombre_juzgado }}/{{ sec.nombre }}/{{ expte.numero }}"
+                         data-nota="{{ expte.info.notas if expte.info else '' }}"
+                         data-archivos='{{ expte.archivos_disco | tojson }}'
+                         onclick="abrirPanel(this)">
+                        <div class="card-selector" onclick="event.stopPropagation();">
+                            {% if expte.info %}
+                                <input type="checkbox"
+                                       class="chk-sync"
+                                       data-expte="{{ expte.info.numero }}"
+                                       data-causa-id="{{ expte.info.id }}"
+                                       onchange="marcarCardSeleccionada(this)">
+                                {% if expte.info.estado_sync == 'error' %}
+                                    <span class="sync-badge sync-error" title="{{ expte.info.error_sync or 'Error de sincronización' }}">ERROR</span>
+                                {% elif expte.info.necesita_sync %}
+                                    <span class="sync-badge sync-pendiente">SYNC</span>
+                                {% elif expte.info.estado_sync == 'sincronizado' %}
+                                    <span class="sync-badge sync-ok">OK</span>
+                                {% else %}
+                                    <span class="sync-badge sync-none">—</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="sync-badge sync-none">SIN DB</span>
+                            {% endif %}
+                        </div>
+                        <div class="tarjeta-content">
+                            {% if expte.info %}
+                            <div class="expte-num">{{ expte.info.numero }}</div>
+                            <div class="expte-caratula">{{ expte.info.demandado|truncate(65)|upper }}</div>
+                            <div class="expte-meta">
+                                <div class="expte-notif">🔔 <span>{{ expte.info.ultima_notificacion or '—' }}</span></div>
+                                <div class="expte-estado">{{ (expte.estado_archivo or expte.info.estado or 'EN TRÁMITE')|truncate(26)|upper }}</div>
+                            </div>
+                            {% else %}
+                            <div class="expte-num">{{ expte.numero }}</div>
+                            <div class="expte-caratula" style="color:var(--text-dim);">Sin clasificar</div>
+                            <div class="expte-meta">
+                                <div class="expte-notif"></div>
+                                <div class="expte-estado" style="color:var(--amber);background:rgba(255,171,0,0.1);">SIN CLASIFICAR</div>
+                            </div>
+                            {% endif %}
+                        </div>
+                        <div class="card-row" style="display:none;">
+                            <div class="expte-num">{{ expte.info.numero if expte.info else expte.numero }}</div>
+                            <div class="row-caratula">{{ (expte.info.demandado if expte.info else 'Sin clasificar')|truncate(60)|upper }}</div>
+                            <div class="row-notif">{% if expte.info and expte.info.ultima_notificacion %}🔔 {{ expte.info.ultima_notificacion }}{% else %}—{% endif %}</div>
+                            <div class="row-estado">{{ (expte.estado_archivo or (expte.info.estado if expte.info else '') or 'EN TRÁMITE')|truncate(30)|upper }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% endfor %}
+                </div>
+            </details>
+            {% endfor %}
+        </div>
+
+        <div class="sidebar">
+            <div class="import-box">
+                <details open>
+                    <summary style="color:var(--blue); cursor:pointer; font-size:0.78rem; font-weight:600; font-family:var(--mono);">🚀 IMPORTAR CARPETAS</summary>
+                    <p>Copiá los expedientes en <strong style="color:var(--text-bright);">IMPORTAR_AQUI</strong> y presioná el botón.</p>
+                    <button class="btn-import" onclick="iniciarImportacion()">INICIAR MIGRACIÓN</button>
+                </details>
+                <div style="border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px;">
+                    <div style="color:var(--blue); font-size:0.78rem; font-weight:600; font-family:var(--mono); margin-bottom:6px;">📋 IMPORTAR LISTA</div>
+                    <p style="font-size:0.7rem; color:var(--text-dim); line-height:1.5; margin-bottom:8px;">
+                        Escribí los números completos uno por línea o pegá desde Excel.<br>
+                        <span style="color:var(--text); font-family:var(--mono); font-size:0.65rem;">Ej: C01 45787/99 · EXP 218015/21</span>
+                    </p>
+                    <textarea id="lista-importar" style="width:100%; height:80px; background:var(--bg); border:1px solid var(--border2); color:var(--text-bright); border-radius:5px; padding:7px 8px; font-size:0.72rem; font-family:var(--mono); resize:vertical; outline:none; margin-bottom:8px;" placeholder="C01 45787/99&#10;EXP 218015/21&#10;..."></textarea>
+                    <div style="margin-bottom:8px;">
+                        <input type="file" id="excel-importar" accept=".xlsx,.xls,.csv" style="font-size:0.68rem; color:var(--text-dim); font-family:var(--mono); width:100%;">
+                    </div>
+                    <button class="btn-import" onclick="iniciarImportarLista()" style="background: #00897b;">CREAR CARPETAS</button>
+                </div>
+                <div style="border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px;">
+                    <div style="color:#e91e63; font-size:0.78rem; font-weight:600; font-family:var(--mono); margin-bottom:6px;">💾 IMPORTAR BACKUP</div>
+                    <p style="font-size:0.7rem; color:var(--text-dim); line-height:1.5; margin-bottom:8px;">
+                        Pegá la ruta completa de la carpeta backup.<br>
+                        <span style="color:var(--text); font-family:var(--mono); font-size:0.65rem;">Ej: C:\Users\...\EXPTE CLIENTE</span>
+                    </p>
+                    <input type="text" id="ruta-backup" 
+                        style="width:100%; background:var(--bg); border:1px solid var(--border2); color:var(--text-bright); border-radius:5px; padding:7px 8px; font-size:0.72rem; font-family:var(--mono); outline:none; margin-bottom:8px;"
+                        placeholder="C:\Users\...\EXPTE CLIENTE">
+                    <button class="btn-import" onclick="iniciarImportarBackup()" style="background:#c2185b;">IMPORTAR BACKUP</button>
+                </div>
+            </div>
+            <div class="sidebar-section">
+                <div class="sidebar-title">🔴 VENCIMIENTOS</div>
+                {% for v in vencimientos_db %}
+                <div class="vence-item">
+                    <div class="vence-fecha">{{ v.fecha.strftime('%d/%m/%Y') }}</div>
+                    <div class="vence-titulo">{{ v.titulo }}</div>
+                    <a href="{{ url_for('eliminar_vencimiento', id=v.id) }}" class="vence-del" onclick="return confirm('¿Borrar?')">×</a>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="sidebar-section">
+                <div class="sidebar-title">🟢 AGENDA</div>
+                <div class="cal-box" id="calendario-container"></div>
+                <div class="evento-detalle" id="evento-detalle">
+                    <div id="evento-fecha-seleccionada" style="font-size:0.62rem; color:var(--text-dim); font-family:var(--mono);"></div>
+                    <div id="evento-descripcion" style="font-size:0.76rem; color:var(--text-bright); margin-top:3px;"></div>
+                </div>
+                {% for nota in notas_db %}
+                <div class="nota-item">
+                    <div><span class="nota-fecha">{{ nota.fecha.strftime('%d/%m') }}</span><span class="nota-texto"> {{ nota.evento }}</span></div>
+                    <a href="{{ url_for('eliminar_nota', id=nota.id) }}" class="nota-del" onclick="return confirm('¿Borrar?')">×</a>
+                </div>
+                {% endfor %}
+                <details class="agenda-form">
+                    <summary>+ AGENDAR EVENTO</summary>
+                    <form action="/agregar_evento" method="POST">
+                        <input type="date" name="fecha" id="input-fecha-evento" required>
+                        <input type="text" name="evento" placeholder="¿Qué hay que hacer?" required>
+                        <button type="submit" class="btn-guardar">GUARDAR</button>
+                    </form>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <script id="data-notas" type="application/json">{{ notas_json | tojson }}</script>
+    <script>
+        const notasJson = JSON.parse(document.getElementById('data-notas').textContent);
+        let fechaVisual = new Date();
+        let vistaActual = 'tarjetas';
+        let panelCardActual = null;
+        var socket = io();
+
+        // ── Badge del plan ────────────────────────────────────
+        (function() {
+            const colores = { trial: '#ff9800', basic: '#607d8b', pro: '#2979ff', premium: '#9c27b0', dev: '#00e676', piloto: '#607d8b' };
+            const badge = document.getElementById('plan-badge');
+            if (badge) {
+                badge.textContent = PLAN.toUpperCase();
+                badge.style.background = colores[PLAN] || '#607d8b';
+                badge.style.color = (PLAN === 'dev' || PLAN === 'trial') ? '#000' : '#fff';
+            }
+        })();
+
+        // ── Monitor ───────────────────────────────────────────
+        function procesarDataBot(data) {
+            const monitor  = document.getElementById('monitor-proceso');
+            const barra    = document.getElementById('contenedor-barra');
+            const progreso = document.getElementById('barra-progreso');
+            monitor.style.display = 'block';
+            if (data.progreso !== undefined) {
+                barra.style.display = 'block';
+                progreso.style.width = data.progreso + '%';
+                progreso.innerText = data.progreso + '%';
+            }
+            let color = '#00e676';
+            if (data.msg.includes('❌') || data.msg.includes('💥')) color = '#ff4d4d';
+            else if (data.msg.includes('⚠️')) color = '#ffab00';
+            else if (data.msg.includes('🔍')) color = '#2979ff';
+            const hora = new Date().toLocaleTimeString();
+            monitor.innerHTML += '<div style="color:'+color+'; margin-bottom:1px;"><span style="color:#1e2530;">['+hora+']</span> '+data.msg+'</div>';
+            monitor.scrollTop = monitor.scrollHeight;
+        }
+        socket.on('status_update', procesarDataBot);
+        socket.on('bot_status', procesarDataBot);
+        socket.on('actualizacion_completa', function(data) {
+    document.getElementById('monitor-proceso').innerHTML += 
+        '<div style="color:#00e676;font-weight:700;margin-top:6px;">▶ ACTUALIZACIÓN FINALIZADA</div>';
+    
+    var modal = document.createElement('div');
+    modal.id = 'modal-completar';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.80);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = 
+        '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:28px;width:400px;font-family:var(--mono);">' +
+        '<div style="color:#00bcd4;font-size:0.85rem;font-weight:700;margin-bottom:8px;">📚 COMPLETAR HISTORIAL</div>' +
+        '<div style="color:var(--text);font-size:0.78rem;margin-bottom:20px;line-height:1.6;">' +
+        'Se actualizaron <strong style="color:var(--blue);">' + data.total + '</strong> expedientes.<br>' +
+        '¿Querés completar el historial de estos mismos expedientes ahora?' +
+        '</div>' +
+        '<div style="display:flex;gap:10px;">' +
+        '<button onclick="document.body.removeChild(document.getElementById(\'modal-completar\'));location.reload();" ' +
+        'style="flex:1;padding:9px;background:transparent;border:1px solid var(--border2);color:var(--text);border-radius:5px;cursor:pointer;font-size:0.75rem;font-family:var(--mono);">NO, CERRAR</button>' +
+        '<button id="btn-si-completar" style="flex:2;padding:9px;background:#00bcd4;border:none;color:#000;border-radius:5px;cursor:pointer;font-size:0.75rem;font-weight:700;font-family:var(--mono);">SÍ, COMPLETAR AHORA</button>' +
+        '</div></div>';
+    document.body.appendChild(modal);
+    
+    document.getElementById('btn-si-completar').onclick = function() {
+        document.body.removeChild(document.getElementById('modal-completar'));
+        document.getElementById('monitor-proceso').style.display = 'block';
+        var fd = new FormData();
+        fd.append('expedientes', JSON.stringify(data.expedientes));
+        fetch('/run_completar_historial', {method:'POST', body:fd});
+    };
+});
+
+socket.on('bot_finished', function() {
+    document.getElementById('monitor-proceso').innerHTML += 
+        '<div style="color:#00e676;font-weight:700;margin-top:6px;">▶ PROCESO FINALIZADO — RECARGANDO...</div>';
+    setTimeout(function() { location.reload(); }, 2500);
+});
+
+        // ── Calendario ────────────────────────────────────────
+        function renderCalendario() {
+            const c = document.getElementById('calendario-container');
+            const mes = fechaVisual.getMonth(), año = fechaVisual.getFullYear();
+            const hoy = new Date().toISOString().split('T')[0];
+            const meses = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+            const primer = new Date(año,mes,1).getDay(), dias = new Date(año,mes+1,0).getDate(), start = primer===0?6:primer-1;
+            let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+                '<button onclick="cambiarMes(-1)" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:1rem;">‹</button>' +
+                '<span style="font-family:var(--mono);font-size:0.7rem;color:var(--text);">'+meses[mes]+' '+año+'</span>' +
+                '<button onclick="cambiarMes(1)" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:1rem;">›</button>' +
+                '</div><table class="cal-table"><thead><tr><th>LU</th><th>MA</th><th>MI</th><th>JU</th><th>VI</th><th>SA</th><th>DO</th></tr></thead><tbody><tr>';
+            for (let j=0; j<start; j++) html+='<td></td>';
+            let d=1;
+            for (let j=start; d<=dias; j++) {
+                if (j%7===0&&j!==0) html+='</tr><tr>';
+                const iso = año+'-'+String(mes+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+                let cls='dia-calendario';
+                if (iso===hoy) cls+=' hoy';
+                if (notasJson[iso]) {
+                    if (notasJson[iso].some(function(n){return n.tipo==='agenda';})) cls+=' tiene-agenda';
+                    else if (notasJson[iso].some(function(n){return n.tipo==='vencimiento';})) cls+=' tiene-vencimiento';
+                }
+                html+='<td class="'+cls+'" onclick="seleccionarDia(\''+iso+'\')">'+d+'</td>';
+                d++;
+            }
+            html+='</tr></tbody></table>';
+            c.innerHTML = html;
+        }
+        function cambiarMes(d) { fechaVisual.setMonth(fechaVisual.getMonth()+d); renderCalendario(); }
+        function seleccionarDia(f) {
+            document.getElementById('input-fecha-evento').value = f;
+            const det = document.getElementById('evento-detalle');
+            if (notasJson[f]) {
+                document.getElementById('evento-fecha-seleccionada').textContent = f;
+                document.getElementById('evento-descripcion').innerHTML = notasJson[f].map(function(n){
+                    return '<div style="color:'+(n.tipo==='vencimiento'?'var(--red)':'var(--green)')+';">• '+n.texto+'</div>';
+                }).join('');
+                det.style.display = 'block';
+            } else { det.style.display = 'none'; }
+        }
+
+        // ── Panel lateral ─────────────────────────────────────
+        function abrirPanel(card) {
+            var nro        = card.dataset.nro;
+            var caratula   = card.dataset.caratula;
+            var causaId    = card.dataset.causaId;
+            var visor      = card.dataset.visor;
+            var nota       = card.dataset.nota || '';
+            var juzgado    = card.dataset.juzgado;
+            var secretaria = card.dataset.secretaria;
+            var archivos   = JSON.parse(card.dataset.archivos || '[]');
+            document.querySelectorAll('.card').forEach(function(c){c.classList.remove('active');});
+            card.classList.add('active');
+            panelCardActual = card;
+            document.getElementById('panel-nro').textContent = nro;
+            document.getElementById('panel-caratula').textContent = caratula;
+            document.getElementById('panel-link-libro').href = visor;
+            document.getElementById('panel-nota').value = nota;
+            document.getElementById('panel-nota').dataset.causaId = causaId;
+            document.getElementById('panel-fecha-vence').value = '';
+            document.getElementById('panel-titulo-vence').value = '';
+            document.getElementById('panel-titulo-vence').dataset.nro = nro;
+            document.getElementById('panel-fecha-vence').dataset.nro = nro;
+            var lista = document.getElementById('panel-pdf-lista');
+            if (archivos.length) {
+                lista.innerHTML = archivos.map(function(f){
+                    return '<div class="panel-pdf-item"><span>📄 '+(f.length>38?f.substring(0,38)+'…':f)+'</span></div>';
+                }).join('');
+            } else {
+                lista.innerHTML = '<div style="color:var(--text-dim); font-size:0.68rem; padding:4px 0;">Sin archivos</div>';
+            }
+            document.getElementById('panel-btn-subir').onclick = function(){ subirPDF(nro, juzgado, secretaria); };
+            document.getElementById('panel-detalle').classList.add('abierto');
+        }
+
+        function cerrarPanel() {
+            document.getElementById('panel-detalle').classList.remove('abierto');
+            document.querySelectorAll('.card').forEach(function(c){c.classList.remove('active');});
+            panelCardActual = null;
+        }
+        document.addEventListener('keydown', function(e){ if(e.key==='Escape') cerrarPanel(); });
+
+        // ── Vista ─────────────────────────────────────────────
+        function alternarVista() {
+            var area = document.getElementById('content-area');
+            var btn  = document.getElementById('btn-vista');
+            var tarjetasContent = document.querySelectorAll('.tarjeta-content');
+            var rowContent = document.querySelectorAll('.card-row');
+            var colHeaders = document.querySelectorAll('.lista-col-header');
+            if (vistaActual === 'tarjetas') {
+                area.classList.add('vista-lista');
+                document.querySelectorAll('.juzgado-seccion').forEach(function(d){d.open=true;});
+                tarjetasContent.forEach(function(e){e.style.display='none';});
+                rowContent.forEach(function(e){e.style.display='grid';});
+                colHeaders.forEach(function(h){h.style.display='grid';});
+                btn.innerHTML='⊞ Tarjetas'; btn.classList.add('activo');
+                vistaActual='lista';
+            } else {
+                area.classList.remove('vista-lista');
+                document.querySelectorAll('.juzgado-seccion').forEach(function(d){d.open=false;});
+                tarjetasContent.forEach(function(e){e.style.display='';});
+                rowContent.forEach(function(e){e.style.display='none';});
+                colHeaders.forEach(function(h){h.style.display='none';});
+                btn.innerHTML='☰ Lista'; btn.classList.remove('activo');
+                vistaActual='tarjetas';
+            }
+            cerrarPanel();
+        }
+
+        // ── Notas y vencimientos ──────────────────────────────
+        function guardarNotaDesdePanel() {
+            var ta = document.getElementById('panel-nota');
+            var causaId = ta.dataset.causaId;
+            if (!causaId) return;
+            var fd = new FormData();
+            fd.append('causa_id', causaId); fd.append('nota', ta.value);
+            fetch('/guardar_nota', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
+                if (d.success) { ta.style.borderColor='var(--green)'; setTimeout(function(){ta.style.borderColor='';},1500); }
+            });
+        }
+
+        function guardarVencimientoDesdePanel() {
+            var nro    = document.getElementById('panel-titulo-vence').dataset.nro;
+            var fecha  = document.getElementById('panel-fecha-vence').value;
+            var titulo = document.getElementById('panel-titulo-vence').value;
+            if (!fecha || !titulo) { alert('Completá fecha y descripción'); return; }
+            var fd = new FormData();
+            fd.append('nro_expte', nro); fd.append('fecha', fecha); fd.append('titulo', titulo);
+            fetch('/agregar_vencimiento_ajax', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
+                if (d.success) location.reload(); else alert('Error: '+d.message);
+            });
+        }
+
+        function subirPDF(nro, juzgado, secretaria) {
+            var input = document.createElement('input');
+            input.type='file'; input.accept='.pdf'; input.multiple=true;
+            input.onchange = function() {
+                var fd = new FormData();
+                for (var i=0; i<input.files.length; i++) fd.append('pdfs', input.files[i]);
+                fd.append('nro_expte', nro); fd.append('juzgado', juzgado); fd.append('secretaria', secretaria);
+                fetch('/subir_pdf', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
+                    if (d.success) { alert('✅ '+d.cantidad+' PDF(s) subidos'); location.reload(); }
+                    else alert('Error: '+d.message);
+                });
+            };
+            input.click();
+        }
+
+        // ── Bots ──────────────────────────────────────────────
+        function iniciarClasificador()  { if(confirm('¿Iniciar clasificación?'))  { document.getElementById('monitor-proceso').style.display='block'; fetch('/run_clasificador',{method:'POST'}); } }
+        function iniciarSincronizador() { if(confirm('¿Iniciar sincronización de pendientes?')) { document.getElementById('monitor-proceso').style.display='block'; fetch('/run_sincronizador',{method:'POST'}); } }
+
+        function marcarCardSeleccionada(chk) {
+            var card = chk.closest('.expte-card');
+            if (!card) return;
+            if (chk.checked) card.classList.add('seleccionado-sync');
+            else card.classList.remove('seleccionado-sync');
+        }
+
+        function sincronizarSeleccionados() {
+            var checks = Array.from(document.querySelectorAll('.chk-sync:checked'));
+
+            if (checks.length === 0) {
+                alert('Seleccioná al menos un expediente para sincronizar.');
+                return;
+            }
+
+            var expedientes = checks
+                .map(function(chk) { return chk.dataset.expte; })
+                .filter(function(nro) { return nro && nro.trim(); });
+
+            if (expedientes.length === 0) {
+                alert('Los expedientes seleccionados no tienen número válido.');
+                return;
+            }
+
+            if (!confirm('¿Sincronizar ' + expedientes.length + ' expediente(s) seleccionado(s)?')) {
+                return;
+            }
+
+            document.getElementById('monitor-proceso').style.display = 'block';
+
+            fetch('/run_sincronizador_selectivo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ expedientes: expedientes })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success) {
+                    alert(data.message || 'No se pudo iniciar la sincronización selectiva.');
+                }
+            })
+            .catch(function(err) {
+                alert('Error iniciando sincronización selectiva: ' + err);
+            });
+        }
+
+        function seleccionarPendientesSync() {
+            document.querySelectorAll('.chk-sync').forEach(function(chk) {
+                var card = chk.closest('.expte-card');
+                if (!card) return;
+                chk.checked = card.dataset.syncPendiente === '1' || card.dataset.syncEstado === 'error';
+                marcarCardSeleccionada(chk);
+            });
+        }
+
+        function limpiarSeleccionSync() {
+            document.querySelectorAll('.chk-sync').forEach(function(chk) {
+                chk.checked = false;
+                marcarCardSeleccionada(chk);
+            });
+        }
+
+        function iniciarImportacion()   { if(confirm('¿Procesar IMPORTAR_AQUI?')) { document.getElementById('monitor-proceso').style.display='block'; fetch('/importar_legado',{method:'POST'}); } }
+
+       function iniciarActualizador() {
+            var hoy = new Date().toISOString().split('T')[0];
+            var esTrial = (PLAN === 'trial');
+            var modal = document.createElement('div');
+            modal.id = 'modal-actualizador';
+            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;';
+            
+            var fechaHtml = esTrial ? '' :
+                '<label style="font-size:0.62rem;color:var(--text);letter-spacing:1px;display:block;margin-bottom:5px;">FECHA DE LISTA</label>' +
+                '<input type="date" id="modal-fecha-notif" value="'+hoy+'" style="width:100%;background:var(--bg);border:1px solid var(--border2);color:var(--text-bright);border-radius:5px;padding:8px 10px;font-size:0.8rem;font-family:var(--mono);outline:none;margin-bottom:16px;">';
+            
+            var subtitulo = esTrial
+                ? '<span style="color:#ffab00;">⚠️ MODO TRIAL — máximo 5 expedientes</span>'
+                : '¿Querés usar una fecha diferente?';
+            
+            modal.innerHTML =
+                '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:28px;width:380px;font-family:var(--mono);">' +
+                '<div style="color:var(--blue);font-size:0.85rem;font-weight:700;margin-bottom:6px;">🔔 ACTUALIZAR NOTIFICACIONES</div>' +
+                '<div style="color:var(--text);font-size:0.72rem;margin-bottom:20px;line-height:1.6;">'+subtitulo+'</div>' +
+                fechaHtml +
+                '<label style="font-size:0.62rem;color:var(--text);letter-spacing:1px;display:block;margin-bottom:5px;">MATRÍCULA</label>' +
+                '<div style="display:flex;gap:8px;margin-bottom:20px;">' +
+                '<input type="radio" name="mat-opt" id="mat-default" value="default" checked style="margin-top:3px;">' +
+                '<label for="mat-default" style="font-size:0.72rem;color:var(--text-bright);cursor:pointer;flex:1;">Usar matrícula del perfil <span id="mat-label" style="color:var(--blue);font-family:var(--mono);">...</span></label>' +
+                '</div>' +
+                '<div style="display:flex;gap:8px;margin-bottom:20px;">' +
+                '<input type="radio" name="mat-opt" id="mat-custom" value="custom" style="margin-top:3px;">' +
+                '<label for="mat-custom" style="font-size:0.72rem;color:var(--text-bright);cursor:pointer;">Otra matrícula:</label>' +
+                '<input type="text" id="mat-custom-val" placeholder="ej: 3232" style="flex:1;background:var(--bg);border:1px solid var(--border2);color:var(--text-bright);border-radius:5px;padding:4px 8px;font-size:0.78rem;font-family:var(--mono);outline:none;" onclick="document.getElementById(\'mat-custom\').checked=true;">' +
+                '</div>' +
+                '<div style="display:flex;gap:10px;">' +
+                '<button onclick="document.body.removeChild(document.getElementById(\'modal-actualizador\'))" style="flex:1;padding:9px;background:transparent;border:1px solid var(--border2);color:var(--text);border-radius:5px;cursor:pointer;font-size:0.75rem;font-family:var(--mono);">CANCELAR</button>' +
+                '<button id="modal-btn-confirmar" style="flex:2;padding:9px;background:var(--blue);border:none;color:#fff;border-radius:5px;cursor:pointer;font-size:0.75rem;font-weight:700;font-family:var(--mono);">BUSCAR NOTIFICACIONES</button>' +
+                '</div></div>';
+            
+            document.body.appendChild(modal);
+
+            // Cargar matrícula del perfil
+            fetch('/api/mi_matricula').then(r=>r.json()).then(d=>{
+                document.getElementById('mat-label').textContent = d.matricula || '(sin matrícula)';
+            });
+
+            document.getElementById('modal-btn-confirmar').onclick = function() {
+                var fechaInput = document.getElementById('modal-fecha-notif');
+                var fecha = (esTrial || !fechaInput) ? hoy : fechaInput.value;
+                var usaCustom = document.getElementById('mat-custom').checked;
+                var matriculaCustom = document.getElementById('mat-custom-val').value.trim();
+                document.body.removeChild(document.getElementById('modal-actualizador'));
+                document.getElementById('monitor-proceso').style.display = 'block';
+                var fd = new FormData();
+                fd.append('fecha', fecha);
+                if (usaCustom && matriculaCustom) {
+                    fd.append('matricula_override', matriculaCustom);
+                }
+                fetch('/run_actualizador', {method:'POST', body:fd});
+            };
+        }
+
+        function iniciarCompletarHistorial() {
+    if (confirm('¿Completar historial de todos los expedientes?\n\nEsto descargará todos los archivos anteriores al último que ya tenés, yendo de atrás para adelante.\n\nPuede tardar bastante dependiendo de la cantidad de expedientes.')) {
+        document.getElementById('monitor-proceso').style.display = 'block';
+        fetch('/run_completar_historial', {method:'POST'});
+    }
+}
+
+        function iniciarAuditoria() {
+            var modal = document.createElement('div');
+            modal.id = 'modal-auditoria';
+            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.80);z-index:9999;display:flex;align-items:center;justify-content:center;';
+            modal.innerHTML =
+                '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:28px;width:480px;font-family:var(--mono);">' +
+                '<div style="color:#e91e63;font-size:0.85rem;font-weight:700;margin-bottom:4px;">🔎 AUDITORÍA DE EXPEDIENTES</div>' +
+                '<div style="color:var(--text-dim);font-size:0.7rem;margin-bottom:18px;line-height:1.6;">Ingresá los expedientes uno por línea o cargá un Excel.</div>' +
+                '<textarea id="auditoria-lista" style="width:100%;height:140px;background:var(--bg);border:1px solid var(--border2);color:var(--text-bright);border-radius:6px;padding:10px;font-size:0.78rem;font-family:var(--mono);resize:vertical;outline:none;margin-bottom:12px;" placeholder="C01 41481/99&#10;EXP 278678/25 - Curuzú Cuatiá&#10;MXP 10073/19 - Monte Caseros&#10;..."></textarea>' +
+                '<div style="margin-bottom:16px;"><label style="font-size:0.62rem;color:var(--text-dim);letter-spacing:1px;display:block;margin-bottom:8px;">CARGAR DESDE EXCEL</label>' +
+                '<input type="file" id="auditoria-excel" accept=".xlsx,.xls,.csv" style="font-size:0.72rem;color:var(--text-dim);font-family:var(--mono);"></div>' +
+                '<div style="margin-bottom:20px;"><label style="font-size:0.62rem;color:var(--text-dim);letter-spacing:1px;display:block;margin-bottom:8px;">MODO DE DESCARGA</label>' +
+                '<div style="display:flex;gap:16px;">' +
+                '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.75rem;color:var(--text);"><input type="radio" name="auditoria-modo" value="ultimo" checked style="accent-color:#00bcd4;"> 🔔 Solo último movimiento</label>' +
+                '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.75rem;color:var(--text);"><input type="radio" name="auditoria-modo" value="completo" style="accent-color:#00bcd4;"> 📚 Ciclo completo</label>' +
+                '</div></div>' +
+                '<div style="display:flex;gap:10px;">' +
+                '<button onclick="document.body.removeChild(document.getElementById(\'modal-auditoria\'))" style="flex:1;padding:9px;background:transparent;border:1px solid var(--border2);color:var(--text);border-radius:5px;cursor:pointer;font-size:0.75rem;font-family:var(--mono);">CANCELAR</button>' +
+                '<button id="auditoria-btn-confirmar" style="flex:2;padding:9px;background:#e91e63;border:none;color:#fff;border-radius:5px;cursor:pointer;font-size:0.75rem;font-weight:700;font-family:var(--mono);">INICIAR AUDITORÍA</button>' +
+                '</div></div>';
+            document.body.appendChild(modal);
+            document.getElementById('auditoria-btn-confirmar').onclick = function() {
+                var lista = document.getElementById('auditoria-lista').value.trim();
+                var modo  = document.querySelector('input[name="auditoria-modo"]:checked').value;
+                if (!lista) { alert('Ingresá al menos un expediente.'); return; }
+                document.body.removeChild(document.getElementById('modal-auditoria'));
+                document.getElementById('monitor-proceso').style.display = 'block';
+                var fd = new FormData(); fd.append('lista', lista); fd.append('modo', modo);
+                fetch('/run_auditoria', {method:'POST', body:fd});
+            };
+        }
+
+        // ── Filtro ────────────────────────────────────────────
+        function filtrarExpedientes() {
+            var val = document.getElementById('globalSearch').value.toLowerCase().trim();
+            if (!val) {
+                document.querySelectorAll('.expte-card').forEach(function(c){c.style.display='';});
+                document.querySelectorAll('.juzgado-seccion').forEach(function(s){s.style.display=''; if(vistaActual==='tarjetas') s.open=false;});
+                return;
+            }
+            document.querySelectorAll('.expte-card').forEach(function(c){
+                var txt = (c.getAttribute('data-nombre')||'').toLowerCase();
+                c.style.display = txt.includes(val) ? '' : 'none';
+            });
+            document.querySelectorAll('.juzgado-seccion').forEach(function(s){
+                var vis = Array.from(s.querySelectorAll('.expte-card')).some(function(c){return c.style.display!=='none';});
+                s.style.display = vis ? '' : 'none';
+                if (vis) s.open = true;
+            });
+        }
+
+        // ── Ordenamiento de columnas en vista lista ───────────────────
+        let ordenActual = { col: null, dir: 1 };
+
+        function ordenarPor(col) {
+            if (ordenActual.col === col) {
+                ordenActual.dir *= -1; // invertir dirección
+            } else {
+                ordenActual.col = col;
+                ordenActual.dir = 1;
+            }
+
+            document.querySelectorAll('.juzgado-seccion').forEach(seccion => {
+                const grids = seccion.querySelectorAll('.grid-container');
+                grids.forEach(grid => {
+                    const cards = Array.from(grid.querySelectorAll('.expte-card'));
+                    cards.sort((a, b) => {
+                        let valA, valB;
+                        if (col === 'notif') {
+                            valA = a.dataset.notif || '';
+                            valB = b.dataset.notif || '';
+                            // Convertir DD/MM/YYYY a YYYYMMDD para comparar
+                            const toISO = v => v.includes('/') ? 
+                                v.split('/').reverse().join('') : v;
+                            valA = toISO(valA);
+                            valB = toISO(valB);
+                        } else if (col === 'caratula') {
+                            valA = a.dataset.caratula || '';
+                            valB = b.dataset.caratula || '';
+                        } else if (col === 'nro') {
+                            valA = a.dataset.nro || '';
+                            valB = b.dataset.nro || '';
+                        }
+                        if (valA < valB) return -1 * ordenActual.dir;
+                        if (valA > valB) return  1 * ordenActual.dir;
+                        return 0;
+                    });
+                    cards.forEach(c => grid.appendChild(c));
+                });
+            });
+
+            // Actualizar indicador visual en headers
+            document.querySelectorAll('.lista-col-header span').forEach(s => {
+                s.textContent = s.textContent.replace(' ↑','').replace(' ↓','');
+            });
+            const idx = col === 'nro' ? 0 : col === 'caratula' ? 1 : col === 'notif' ? 2 : -1;
+            if (idx >= 0) {
+                const headers = document.querySelectorAll('.lista-col-header span');
+                if (headers[idx]) {
+                    headers[idx].textContent += ordenActual.dir === 1 ? ' ↑' : ' ↓';
+                }
+            }
+        }
+
+
+
+        async function abrirModalRecuperarCaratulas() {
+    document.getElementById('modal-caratulas-overlay').style.display = 'flex';
+    const body = document.getElementById('modal-caratulas-body');
+    body.innerHTML = '<div style="color:var(--text-dim);font-size:0.78rem;text-align:center;padding:20px;">Analizando expedientes...</div>';
+
+    const res  = await fetch('/recuperar_caratulas/juzgados_ambiguos');
+    const data = await res.json();
+
+    if (data.ambiguos.length === 0) {
+        body.innerHTML = `
+            <div style="color:var(--text-dim);font-size:0.82rem;line-height:1.6;">
+                <div style="color:#ce93d8;font-weight:700;margin-bottom:12px;">✅ Todos los juzgados tienen localidad detectada automáticamente.</div>
+                <div>Se recuperarán carátulas para todos los expedientes sin carátula usando las localidades detectadas.</div>
+            </div>`;
+        return;
+    }
+
+    let html = `
+        <div style="font-size:0.78rem; color:var(--text-dim); margin-bottom:16px; line-height:1.5;">
+            Los siguientes juzgados no tienen localidad clara en el nombre.<br>
+            <strong style="color:var(--text);">Seleccioná la localidad para cada uno:</strong>
+        </div>`;
+
+    const localidades = data.localidades;
+    const opciones = localidades.map(l => `<option value="${l}">${l}</option>`).join('');
+
+    data.ambiguos.forEach(juzgado => {
+        html += `
+        <div style="margin-bottom:12px; padding:10px; background:var(--bg); border:1px solid var(--border2); border-radius:6px;">
+            <div style="font-size:0.75rem; color:var(--text-bright); font-weight:600; margin-bottom:6px; font-family:var(--mono);">${juzgado}</div>
+            <select data-juzgado="${juzgado}" 
+                style="width:100%; background:var(--bg); border:1px solid var(--border2); color:var(--text); border-radius:5px; padding:6px 8px; font-size:0.78rem; outline:none;">
+                ${opciones}
+            </select>
+        </div>`;
+    });
+
+    body.innerHTML = html;
+}
+
+function cerrarModalCaratulas() {
+    document.getElementById('modal-caratulas-overlay').style.display = 'none';
+}
+
+async function confirmarRecuperarCaratulas() {
+    const selects = document.querySelectorAll('#modal-caratulas-body select[data-juzgado]');
+    const localidades_mapa = {};
+    selects.forEach(s => {
+        localidades_mapa[s.dataset.juzgado] = s.value;
+    });
+
+    cerrarModalCaratulas();
+    document.getElementById('monitor-proceso').style.display = 'block';
+
+    const fd = new FormData();
+    fd.append('localidades_mapa', JSON.stringify(localidades_mapa));
+    fetch('/recuperar_caratulas/ejecutar', { method: 'POST', body: fd });
+}
+
+        // ── Importar lista ────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', function() {
+            var excelInput = document.getElementById('excel-importar');
+            if (excelInput) {
+                excelInput.addEventListener('change', async function() {
+                    var file = this.files[0];
+                    if (!file) return;
+                    var ext = file.name.split('.').pop().toLowerCase();
+                    if (ext === 'csv') {
+                        var text = await file.text();
+                        var lineas = text.split('\n').map(function(l){return l.split(',')[0].trim();}).filter(Boolean);
+                        document.getElementById('lista-importar').value = lineas.join('\n');
+                    } else {
+                        try {
+                            var XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+                            var buffer = await file.arrayBuffer();
+                            var wb = XLSX.read(buffer, {type:'array'});
+                            var ws = wb.Sheets[wb.SheetNames[0]];
+                            var data = XLSX.utils.sheet_to_json(ws, {header:1});
+                            var lineas = data.map(function(row){return String(row[0]||'').trim();}).filter(Boolean);
+                            document.getElementById('lista-importar').value = lineas.join('\n');
+                        } catch(e) {
+                            alert('Usá CSV o pegá los números directamente en el textarea.');
+                        }
+                    }
+                });
+            }
+        });
+
+        function iniciarImportarLista() {
+            var lista = document.getElementById('lista-importar').value.trim();
+            if (!lista) { alert('Escribí al menos un expediente.'); return; }
+            document.getElementById('monitor-proceso').style.display = 'block';
+            var fd = new FormData();
+            fd.append('lista', lista);
+            fetch('/importar_desde_lista', {method:'POST', body:fd});
+        }
+
+
+        function iniciarImportarBackup() {
+            var ruta = document.getElementById('ruta-backup').value.trim();
+            if (!ruta) { alert('Ingresá la ruta del backup.'); return; }
+            if (!confirm('¿Importar backup desde:\n' + ruta + '\n\nEsto puede tardar varios minutos.')) return;
+            document.getElementById('monitor-proceso').style.display = 'block';
+            var fd = new FormData();
+            fd.append('ruta_backup', ruta);
+            fetch('/importar_backup', { method: 'POST', body: fd });
+        }
+
+
+        function filtrarNuevos() {
+    const btn = document.getElementById('btn-nuevos');
+    
+    // Encontrar la fecha más reciente entre todas las tarjetas
+    let fechaMax = '';
+    document.querySelectorAll('.expte-card').forEach(c => {
+        const f = c.dataset.notif || '';
+        if (f && f !== '—') {
+            // Convertir DD/MM/YYYY a YYYYMMDD para comparar
+            const iso = f.includes('/') ? f.split('/').reverse().join('') : f;
+            if (iso > fechaMax) fechaMax = iso;
+        }
+    });
+
+    if (!fechaMax) return;
+
+    const activo = btn.dataset.activo === '1';
+
+    if (activo) {
+        // Desactivar filtro
+        btn.dataset.activo = '0';
+        btn.style.background = '#1a3a1a';
+        document.querySelectorAll('.expte-card').forEach(c => {
+            c.style.display = '';
+            c.style.borderColor = '';
+        });
+        document.querySelectorAll('.juzgado-seccion').forEach(s => s.style.display = '');
+        return;
+    }
+
+    // Activar filtro
+    btn.dataset.activo = '1';
+    btn.style.background = '#00e676';
+    btn.style.color = '#000';
+
+    document.querySelectorAll('.expte-card').forEach(c => {
+        const f = c.dataset.notif || '';
+        const iso = f.includes('/') ? f.split('/').reverse().join('') : f;
+        if (iso === fechaMax) {
+            c.style.display = '';
+            c.style.borderColor = '#00e676';
+            c.style.boxShadow = '0 0 8px rgba(0,230,118,0.4)';
+        } else {
+            c.style.display = 'none';
+        }
+    });
+
+    // Ocultar secciones vacías
+    document.querySelectorAll('.juzgado-seccion').forEach(s => {
+        const visible = Array.from(s.querySelectorAll('.expte-card'))
+            .some(c => c.style.display !== 'none');
+        s.style.display = visible ? '' : 'none';
+        if (visible) s.open = true;
+    });
+}
+
+        window.onload = renderCalendario;
+    </script>
+</body>
+</html>

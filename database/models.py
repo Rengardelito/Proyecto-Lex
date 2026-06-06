@@ -11,14 +11,14 @@ class Usuario(UserMixin, db.Model):
     username      = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     matricula     = db.Column(db.String(20))
-    
+
     forum_user    = db.Column(db.String(100))
     forum_pass    = db.Column(db.String(100))
 
     licencia_activa = db.Column(db.Boolean, default=False)
     licencia_vence  = db.Column(db.Date, nullable=True)
     plan            = db.Column(db.String(20), default='piloto')
-    alcance         = db.Column(db.String(20), default='capital')  
+    alcance         = db.Column(db.String(20), default='capital')
     hardware_id     = db.Column(db.String(64), nullable=True)
 
     causas       = db.relationship('CausaInfo', backref='owner', lazy=True)
@@ -35,9 +35,18 @@ class Usuario(UserMixin, db.Model):
 class CausaInfo(db.Model):
     __tablename__ = 'causa_info'
 
-    id                  = db.Column(db.Integer, primary_key=True)
-    numero              = db.Column(db.String(100), nullable=False)
-    tipo                = db.Column(db.String(20), default="")
+    id = db.Column(db.Integer, primary_key=True)
+
+    # Texto visible/compatibilidad. Ej: 118897-15
+    numero = db.Column(db.String(100), nullable=False)
+
+    # Identidad real del expediente en Forum:
+    # tipo/código + número base + año.
+    # Ej: EXP | 118897 | 15
+    tipo = db.Column(db.String(20), default="", index=True)
+    numero_base = db.Column(db.String(50), nullable=True, index=True)
+    anio = db.Column(db.String(10), nullable=True, index=True)
+
     nombre_carpeta      = db.Column(db.String(100))
     demandado           = db.Column(db.String(200), default='SIN CARATULAR')
     juzgado             = db.Column(db.String(200))
@@ -50,33 +59,27 @@ class CausaInfo(db.Model):
     usuario_id          = db.Column(db.Integer, db.ForeignKey('usuario.id'), nullable=False)
     fecha_creacion      = db.Column(db.DateTime, default=datetime.utcnow)
 
-    # ============================================================
-    # CONTROL DE SINCRONIZACIÓN POR TANDAS
-    # ============================================================
-    # necesita_sync = True  -> entra en "Sincronizar pendientes"
-    # necesita_sync = False -> ya no se vuelve a procesar en próximas tandas
-    necesita_sync    = db.Column(db.Boolean, default=True)
+    # True  -> entra en sincronización
+    # False -> ya no se procesa salvo acción explícita
+    necesita_sync = db.Column(db.Boolean, default=True)
 
-    # pendiente | sincronizado | error
-    estado_sync      = db.Column(db.String(30), default="pendiente")
+    # pendiente | parcial | sincronizado | error
+    estado_sync = db.Column(db.String(30), default="pendiente")
 
     # identifica la tanda/lote de importación o clasificación
-    lote_importacion = db.Column(db.String(80), nullable=True)
+    lote_importacion = db.Column(db.String(80), nullable=True, index=True)
 
-    # última vez que se intentó o logró sincronizar
-    ultima_sync      = db.Column(db.DateTime, nullable=True)
+    ultima_sync = db.Column(db.DateTime, nullable=True)
+    error_sync = db.Column(db.Text, nullable=True)
 
-    # guarda detalle si Forum no lo encontró o falló
-    error_sync       = db.Column(db.Text, nullable=True)
-
-        # total de páginas existentes en Forum
     paginas_forum_total = db.Column(db.Integer, default=0)
-
-    # total de PDFs realmente descargados en LexView
     paginas_descargadas_total = db.Column(db.Integer, default=0)
 
     documentos = db.relationship(
-        'Documento', backref='causa', lazy=True, cascade="all, delete-orphan"
+        'Documento',
+        backref='causa',
+        lazy=True,
+        cascade="all, delete-orphan"
     )
 
 

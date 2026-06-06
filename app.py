@@ -231,65 +231,138 @@ def importar_legado():
 def importar_desde_lista():
     lista_raw = request.form.get('lista', '').strip()
     u_name = current_user.username
+    u_id = current_user.id
+
     if not lista_raw:
         return jsonify({"success": False, "message": "La lista está vacía."}), 400
+
     lineas = [l.strip() for l in lista_raw.splitlines() if l.strip()]
+
     if not lineas:
         return jsonify({"success": False, "message": "No se encontraron expedientes válidos."}), 400
+
+    def parsear_identidad_expte(texto):
+        texto = str(texto or "").strip().upper()
+        texto = texto.replace("/", "-")
+        texto = re.sub(r"\s+", " ", texto)
+
+        tipo = ""
+        numero_base = ""
+        anio = ""
+
+        # EXP-118897-15 / C01-43532-1 / C01 43532-1
+        m = re.match(r"^([A-Z]{1,4}\d{0,3})[\s\-]+(\d{3,8})[\s\-]+(\d{1,4})$", texto)
+
+        if m:
+            tipo = m.group(1)
+            numero_base = m.group(2)
+            anio = m.group(3)
+        else:
+            # 118897-15
+            m = re.search(r"(\d{3,8})[\s\-]+(\d{1,4})", texto)
+            if m:
+                numero_base = m.group(1)
+                anio = m.group(2)
+            else:
+                m = re.search(r"(\d{3,8})", texto)
+                if m:
+                    numero_base = m.group(1)
+
+        numero_visible = f"{numero_base}-{anio}" if anio else numero_base
+        return tipo, numero_base, anio, numero_visible
+
     try:
         def hilo():
-            ruta_importados = os.path.join('expedientes_clientes', u_name, 'IMPORTADOS')
-            os.makedirs(ruta_importados, exist_ok=True)
-            creados = 0
-            for linea in lineas:
-                linea = linea.strip()
-                if not linea:
-                    continue
-                nombre = re.sub(r'\s+', '_', linea).replace('/', '-')
-                ruta_expte = os.path.join(ruta_importados, nombre)
-                if not os.path.exists(ruta_expte):
-                    os.makedirs(ruta_expte)
+            with app.app_context():
+                ruta_importados = os.path.join(
+                    'expedientes_clientes',
+                    u_name,
+                    'IMPORTADOS'
+                )
+                os.makedirs(ruta_importados, exist_ok=True)
 
-                    # ============================================================
-                    # NUEVO — REGISTRO EN DB COMO PENDIENTE DE SINCRONIZAR
-                    # ============================================================
-                    existe_db = CausaInfo.query.filter_by(
-                        numero=nombre,
-                        usuario_id=current_user.id
-                    ).first()
+                creados = 0
+                lote = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-                    if not existe_db:
-                        nueva = CausaInfo(
-                            numero=nombre,
-                            usuario_id=current_user.id,
-                            estado="Importado",
-                            necesita_sync=True,
-                            estado_sync="pendiente",
-                            lote_importacion=datetime.now().strftime("%Y%m%d_%H%M%S")
+                for linea in lineas:
+                    linea = linea.strip()
+
+                    if not linea:
+                        continue
+
+                    tipo, numero_base, anio, numero_visible = parsear_identidad_expte(linea)
+
+                    if not numero_base:
+                        socketio.emit('bot_status', {
+                            'msg': f'⚠️ Línea ignorada, no pude leer número: {linea}'
+                        })
+                        continue
+
+                    # Carpeta en IMPORTADOS conserva el tipo si existe,
+                    # así clasificador puede usarlo para desambiguar.
+                    if tipo:
+                        nombre_carpeta = f"{tipo}-{numero_base}-{anio}" if anio else f"{tipo}-{numero_base}"
+                    else:
+                        nombre_carpeta = numero_visible
+
+                    nombre_carpeta = nombre_carpeta.replace("/", "-")
+                    nombre_carpeta = re.sub(r"\s+", "_", nombre_carpeta)
+
+                    ruta_expte = os.path.join(ruta_importados, nombre_carpeta)
+
+                    if not os.path.exists(ruta_expte):
+                        os.makedirs(ruta_expte)
+
+                        query = CausaInfo.query.filter(
+                            CausaInfo.usuario_id == u_id,
+                            CausaInfo.numero_base == numero_base,
+                            CausaInfo.anio == anio
                         )
 
-                        db.session.add(nueva)
-                        db.session.commit()
+                        if tipo:
+                            existe_db = query.filter(CausaInfo.tipo == tipo).first()
+                        else:
+                            existe_db = query.first()
 
-                    creados += 1
+                        if not existe_db:
+                            nueva = CausaInfo(
+                                numero=numero_visible,
+                                tipo=tipo,
+                                numero_base=numero_base,
+                                anio=anio,
+                                usuario_id=u_id,
+                                estado="Importado",
+                                necesita_sync=True,
+                                estado_sync="pendiente",
+                                lote_importacion=lote
+                            )
 
-                    socketio.emit('bot_status', {
-                        'msg': f'✅ Carpeta creada: {nombre}'
-                    })
+                            db.session.add(nueva)
+                            db.session.commit()
 
-                else:
-                    socketio.emit('bot_status', {
-                        'msg': f'⏩ Ya existe: {nombre}'
-                    })
-            socketio.emit('bot_status', {'msg': f'🏁 {creados} carpetas creadas en IMPORTADOS'})
-            socketio.emit('bot_finished', {})
+                        creados += 1
+
+                        socketio.emit('bot_status', {
+                            'msg': f'✅ Carpeta creada: {nombre_carpeta}'
+                        })
+
+                    else:
+                        socketio.emit('bot_status', {
+                            'msg': f'⏩ Ya existe: {nombre_carpeta}'
+                        })
+
+                socketio.emit('bot_status', {
+                    'msg': f'🏁 {creados} carpetas creadas en IMPORTADOS'
+                })
+                socketio.emit('bot_finished', {})
+
         t = threading.Thread(target=hilo, daemon=True)
         t.start()
+
         return jsonify({"success": True})
+
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
-
-
 # ============================================================
 # DASHBOARD
 # ============================================================
@@ -550,6 +623,193 @@ def run_sincronizador_selectivo():
         "success": True,
         "message": f"Sincronizando {len(expedientes)} expedientes seleccionados..."
     })
+
+@app.route('/run_sincronizar_camada', methods=['POST'])
+@login_required
+def run_sincronizar_camada():
+    cantidad = request.form.get('cantidad', '5')
+
+    try:
+        cantidad_int = None if cantidad == 'todas' else int(cantidad)
+    except Exception:
+        cantidad_int = 5
+
+    print(f"[CAMADA] Pedido de sincronización de camada: {cantidad}")
+
+    thread = threading.Thread(
+        target=ejecutar_sincronizacion_camada,
+        args=(
+            current_user.id,
+            current_user.username,
+            socketio,
+            app,
+            cantidad_int
+        )
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({'ok': True})
+
+def ejecutar_sincronizacion_camada(usuario_id, usuario_nombre, socketio, app, cantidad_int=5):
+    from bots.sincronizador import ejecutar_completar_historial
+
+    with app.app_context():
+        pendientes = CausaInfo.query.filter(
+            CausaInfo.usuario_id == usuario_id,
+            CausaInfo.necesita_sync == True,
+            CausaInfo.estado_sync.in_(["pendiente", "parcial"])
+        ).all()
+
+        lista_exptes = []
+
+        for c in pendientes:
+            lista_exptes.append({
+                "numero": c.numero,
+                "tipo": c.tipo or "",
+                "juzgado": c.juzgado or "SIN JUZGADO",
+                "secretaria": c.secretaria or "SIN SECRETARIA",
+                "localidad": "Capital",
+                "cantidad": cantidad_int
+            })
+
+    total = len(lista_exptes)
+
+    if total == 0:
+        socketio.emit('bot_status', {
+            'msg': '📭 No hay expedientes pendientes para sincronizar',
+            'progreso': 100
+        })
+        socketio.emit('bot_finished', {})
+        return
+
+    texto_cantidad = "TODAS" if cantidad_int is None else str(cantidad_int)
+
+    socketio.emit('bot_status', {
+        'msg': f'📚 Sincronizando camada: {total} expedientes | {texto_cantidad} actuaciones por expediente',
+        'progreso': 5
+    })
+
+    ejecutar_completar_historial(
+        usuario_id,
+        usuario_nombre,
+        socketio,
+        app,
+        lista_exptes=lista_exptes
+    )
+
+@app.route('/run_sincronizar_con_cantidad', methods=['POST'])
+@login_required
+def run_sincronizar_con_cantidad():
+    data = request.get_json(silent=True) or {}
+
+    modo = data.get('modo', 'todos')
+    cantidad = data.get('cantidad', 5)
+    expedientes = data.get('expedientes', [])
+    lote = data.get('lote')
+
+    try:
+        cantidad_int = None if cantidad == 'todas' else int(cantidad)
+    except Exception:
+        cantidad_int = 5
+
+    print(
+        f"[SYNC CANTIDAD] modo={modo} "
+        f"cantidad={cantidad_int} "
+        f"expedientes={expedientes} "
+        f"lote={lote}"
+    )
+
+    thread = threading.Thread(
+        target=ejecutar_sync_con_cantidad,
+        args=(
+            current_user.id,
+            current_user.username,
+            socketio,
+            app,
+            modo,
+            cantidad_int,
+            expedientes,
+            lote
+        )
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({'success': True})
+
+def ejecutar_sync_con_cantidad(
+    usuario_id,
+    usuario_nombre,
+    socketio,
+    app,
+    modo,
+    cantidad_int=5,
+    expedientes=None,
+    lote=None
+):
+    from bots.sincronizador import ejecutar_completar_historial
+
+    expedientes = expedientes or []
+
+    with app.app_context():
+        query = CausaInfo.query.filter(
+            CausaInfo.usuario_id == usuario_id,
+            CausaInfo.necesita_sync == True
+        )
+
+        if modo == "seleccionados":
+            query = query.filter(
+                CausaInfo.estado_sync.in_(["pendiente", "parcial"]),
+                CausaInfo.numero.in_(expedientes)
+            )
+        else:
+            query = query.filter(CausaInfo.estado_sync == "pendiente")
+
+        # ============================================================
+        # NUEVO: SI VIENE LOTE, SINCRONIZA SOLO ESA TANDA
+        # ============================================================
+        if lote:
+            query = query.filter(CausaInfo.lote_importacion == lote)
+
+        
+
+        causas = query.all()
+
+        lista_exptes = []
+        for c in causas:
+            lista_exptes.append({
+                "numero": c.numero,
+                "tipo": c.tipo or "",
+                "juzgado": c.juzgado or "SIN JUZGADO",
+                "secretaria": c.secretaria or "SIN SECRETARIA",
+                "localidad": "Capital",
+                "cantidad": cantidad_int
+            })
+
+    if not lista_exptes:
+        socketio.emit('bot_status', {
+            'msg': '📭 No hay expedientes pendientes para sincronizar en esta tanda',
+            'progreso': 100
+        })
+        socketio.emit('bot_finished', {})
+        return
+
+    txt = "TODAS" if cantidad_int is None else str(cantidad_int)
+    txt_lote = f" | lote {lote}" if lote else ""
+
+    socketio.emit('bot_status', {
+        'msg': f'📥 Sincronización con cantidad: {len(lista_exptes)} expedientes | {txt} actuaciones{txt_lote}',
+        'progreso': 5
+    })
+
+    ejecutar_completar_historial(
+        usuario_id,
+        usuario_nombre,
+        socketio,
+        app,
+        lista_exptes=lista_exptes
+    )
 
 @app.route('/run_completar_historial', methods=['POST'])
 @login_required

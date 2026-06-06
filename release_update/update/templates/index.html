@@ -1,0 +1,1461 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>LexView Pro - Visor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mark.js/8.11.1/jquery.mark.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/3/turn.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
+
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: #0a0a0a;
+            display: flex; flex-direction: column;
+            height: 100vh; overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+            color: #e0e0e0;
+        }
+
+        /* ══ TOOLBAR ══ */
+        #toolbar {
+            width: 100%;
+            background: #141414;
+            border-bottom: 1px solid #2a2a2a;
+            padding: 0 16px;
+            height: 54px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+            z-index: 1000;
+            position: relative;
+        }
+
+        .tb-brand {
+            font-size: 0.82rem; font-weight: 700;
+            color: #2979ff; letter-spacing: 1.5px;
+            white-space: nowrap;
+            padding-right: 12px;
+            border-right: 1px solid #2a2a2a;
+            margin-right: 4px;
+        }
+
+        .tb-sep {
+            width: 1px; height: 26px;
+            background: #2a2a2a; flex-shrink: 0; margin: 0 4px;
+        }
+
+        .tb-btn {
+            display: flex; align-items: center; justify-content: center; gap: 5px;
+            height: 34px; padding: 0 12px;
+            border-radius: 6px; border: 1px solid #2a2a2a;
+            background: #1e1e1e; color: #c0c0c0;
+            font-size: 0.78rem; font-weight: 500;
+            cursor: pointer; white-space: nowrap;
+            transition: background 0.15s, color 0.15s;
+            text-decoration: none;
+        }
+        .tb-btn:hover { background: #2a2a2a; color: #fff; border-color: #444; }
+        .tb-btn.red   { background: #7b1a1a; border-color: #a02020; color: #ffaaaa; }
+        .tb-btn.red:hover { background: #9b2020; }
+        .tb-btn.green { background: #1a4a2a; border-color: #2a6a3a; color: #7aeea0; }
+        .tb-btn.green:hover { background: #1e5a30; }
+        .tb-btn.blue  { background: #1a2a5a; border-color: #2a3a8a; color: #7aaeff; }
+        .tb-btn.blue:hover { background: #1e3070; }
+        .tb-btn.icon  { padding: 0 10px; font-size: 1rem; }
+
+        .tb-zoom-label {
+            font-size: 0.75rem; color: #888;
+            min-width: 38px; text-align: center;
+        }
+
+        .tb-search-wrap {
+            display: flex; align-items: center; gap: 6px;
+            background: #1e1e1e; border: 1px solid #2a2a2a;
+            border-radius: 6px; padding: 0 10px;
+            height: 34px; transition: border-color 0.15s;
+        }
+        .tb-search-wrap:focus-within { border-color: #2979ff; }
+        .tb-search-wrap input {
+            background: none; border: none; outline: none;
+            color: #e0e0e0; font-size: 0.78rem; width: 170px;
+        }
+        .tb-search-wrap input::placeholder { color: #555; }
+        #search-counter {
+            font-size: 0.7rem; color: #666;
+            min-width: 60px; white-space: nowrap;
+        }
+        .tb-search-nav button {
+            background: none; border: none; color: #666;
+            cursor: pointer; font-size: 0.72rem; padding: 2px 5px;
+            border-radius: 3px;
+        }
+        .tb-search-nav button:hover { background: #2a2a2a; color: #fff; }
+
+        .tb-foja-wrap {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 0.75rem; color: #555;
+        }
+        .tb-foja-wrap input {
+            width: 46px; background: #1e1e1e; border: 1px solid #2a2a2a;
+            color: #00e676; border-radius: 5px; padding: 4px 6px;
+            font-size: 0.75rem; text-align: center; outline: none;
+        }
+        .tb-foja-wrap input:focus { border-color: #00e676; }
+        .tb-spacer { flex: 1; }
+
+        /* ══ LOADING ══ */
+        #loading-overlay {
+            position: fixed; inset: 0;
+            background: rgba(10,10,10,0.97);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            z-index: 5000; gap: 16px;
+        }
+        .spinner {
+            width: 44px; height: 44px;
+            border: 4px solid #1e1e1e; border-top: 4px solid #2979ff;
+            border-radius: 50%; animation: spin 0.9s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #loading-text { font-size: 0.82rem; color: #666; }
+
+        /* ══ CONTENIDO ══ */
+        #main-content { flex: 1; overflow: hidden; display: flex; }
+
+        #viewport {
+            flex: 1;
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 40px;
+            cursor: grab;
+            user-select: none;
+        }
+        #viewport.dragging { cursor: grabbing; }
+
+        #album-container {
+            display: inline-block;
+            transform-origin: top center;
+            transition: transform 0.12s;
+            position: relative;
+        }
+
+        #album-wrapper {
+            width: 900px;
+            height: 650px;
+        }
+
+        .page {
+            background: #fff;
+            box-shadow: 0 4px 40px rgba(0,0,0,0.7);
+            position: relative; overflow: hidden;
+        }
+        canvas { display: block; position: relative; z-index: 1; }
+
+        /* ══ TEXTLAYER ══ */
+        .textLayer {
+            position: absolute; inset: 0;
+            overflow: hidden; z-index: 2;
+            pointer-events: none; line-height: 1;
+        }
+        .textLayer span {
+            color: transparent; position: absolute;
+            white-space: pre; transform-origin: 0% 0%;
+        }
+        .textLayer span mark {
+            color: transparent !important;
+            background: rgba(255, 210, 0, 0.55) !important;
+            border-radius: 2px;
+            mix-blend-mode: multiply;
+        }
+        .textLayer span mark.current {
+            background: rgba(255, 120, 0, 0.80) !important;
+            outline: 2px solid rgba(255,120,0,0.95);
+        }
+
+        /* ══ NOTAS ══ */
+        #notes-panel {
+            position: fixed; right: -360px; top: 54px;
+            width: 340px; height: calc(100vh - 90px);
+            background: #141414; border-left: 2px solid #2979ff;
+            z-index: 2000; transition: right 0.25s;
+            display: flex; flex-direction: column;
+        }
+        #notes-panel.open { right: 0; }
+        #notes-header {
+            padding: 14px 16px; border-bottom: 1px solid #222;
+            font-size: 0.82rem; font-weight: 600; color: #c0c0c0;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        #notes-header .close-btn { cursor: pointer; color: #555; }
+        #notes-header .close-btn:hover { color: #ff4444; }
+        #notes-list { flex: 1; overflow-y: auto; padding: 10px; }
+        #notes-list::-webkit-scrollbar { width: 4px; }
+        #notes-list::-webkit-scrollbar-thumb { background: #2a2a2a; }
+        .note-item {
+            background: #1e1e1e; padding: 10px; margin-bottom: 8px;
+            border-radius: 6px; border-left: 3px solid #27ae60; cursor: pointer;
+        }
+        .note-item:hover { background: #252525; }
+        .note-foja  { font-size: 0.68rem; color: #2979ff; font-weight: 700; margin-bottom: 4px; }
+        .note-text  { font-size: 0.78rem; color: #ccc; }
+        .note-date  { font-size: 0.65rem; color: #555; margin-top: 4px; }
+        .note-delete { float: right; color: #7b1a1a; cursor: pointer; }
+        .note-delete:hover { color: #ff4444; }
+        #notes-input-area { padding: 10px; border-top: 1px solid #222; }
+        #notes-textarea {
+            width: 100%; background: #1e1e1e; border: 1px solid #2a2a2a;
+            color: #e0e0e0; padding: 8px; border-radius: 5px;
+            resize: none; font-size: 0.78rem; outline: none;
+        }
+        #notes-textarea:focus { border-color: #2979ff; }
+        .btn-save-nota {
+            display: block; width: 100%; margin-top: 8px; padding: 8px;
+            background: #1a4a2a; border: 1px solid #2a6a3a; color: #7aeea0;
+            border-radius: 5px; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+        }
+        .btn-save-nota:hover { background: #1e5a30; }
+
+        /* ══ FOOTER ══ */
+        #footer {
+            height: 36px; background: #141414; border-top: 1px solid #1e1e1e;
+            display: flex; align-items: center; padding: 0 20px; gap: 16px; flex-shrink: 0;
+        }
+        #progress-container { flex: 1; height: 4px; background: #1e1e1e; border-radius: 4px; overflow: hidden; }
+        #progress-bar { width: 0%; height: 100%; background: #2979ff; transition: width 0.3s; }
+        #page-counter { font-size: 0.72rem; color: #ffffff; font-weight: 600; white-space: nowrap; }
+
+        /* ══ MODAL CEDULAS ══ */
+        #modal-cedula-overlay {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.85);
+            z-index: 6000;
+            justify-content: center;
+            align-items: center;
+        }
+        #modal-cedula-overlay.open { display: flex; }
+
+        #modal-cedula {
+            background: #181818;
+            border: 1px solid #2a2a2a;
+            border-radius: 10px;
+            width: 780px;
+            max-width: 96vw;
+            max-height: 92vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #modal-cedula-header {
+            background: #1e1e1e;
+            border-bottom: 1px solid #2a2a2a;
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        #modal-cedula-header h2 {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: #7aaeff;
+            letter-spacing: 0.5px;
+        }
+        #modal-cedula-header .close-modal {
+            cursor: pointer; color: #555; font-size: 1.1rem;
+            width: 28px; height: 28px; display: flex;
+            align-items: center; justify-content: center;
+            border-radius: 50%;
+        }
+        #modal-cedula-header .close-modal:hover { background: #2a2a2a; color: #ff4444; }
+
+        #modal-cedula-body {
+            flex: 1; overflow-y: auto; padding: 20px;
+        }
+        #modal-cedula-body::-webkit-scrollbar { width: 6px; }
+        #modal-cedula-body::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+
+        .cedula-step { display: none; }
+        .cedula-step.active { display: block; }
+
+        .step-title {
+            font-size: 0.78rem; font-weight: 700;
+            color: #888; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 16px;
+        }
+
+        .proveido-item {
+            background: #1e1e1e;
+            border: 1px solid #2a2a2a;
+            border-radius: 7px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .proveido-item:hover { border-color: #2979ff; background: #1a1a2a; }
+        .proveido-item.selected { border-color: #2979ff; background: #1a2040; }
+        .proveido-fecha {
+            font-size: 0.7rem; color: #2979ff; font-weight: 700;
+            white-space: nowrap; min-width: 72px;
+        }
+        .proveido-extracto { font-size: 0.82rem; color: #ccc; }
+        .proveido-check { margin-left: auto; color: #2979ff; display: none; }
+        .proveido-item.selected .proveido-check { display: block; }
+
+        .form-section { margin-bottom: 20px; }
+        .form-section-title {
+            font-size: 0.72rem; font-weight: 700;
+            color: #2979ff; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 10px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #2a2a2a;
+        }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .form-grid.full { grid-template-columns: 1fr; }
+        .form-group { display: flex; flex-direction: column; gap: 4px; }
+        .form-group label {
+            font-size: 0.68rem; color: #666; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            background: #1e1e1e;
+            border: 1px solid #2a2a2a;
+            color: #e0e0e0;
+            border-radius: 5px;
+            padding: 7px 10px;
+            font-size: 0.82rem;
+            outline: none;
+            font-family: 'Segoe UI', sans-serif;
+            transition: border-color 0.15s;
+        }
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus { border-color: #2979ff; }
+        .form-group textarea { resize: vertical; min-height: 80px; }
+        .form-group select option { background: #1e1e1e; }
+
+        .tipo-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .tipo-card {
+            background: #1e1e1e;
+            border: 1px solid #2a2a2a;
+            border-radius: 7px;
+            padding: 12px;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+            text-align: center;
+        }
+        .tipo-card:hover { border-color: #2979ff; background: #1a1a2a; }
+        .tipo-card.selected { border-color: #2979ff; background: #1a2040; }
+        .tipo-card-icon { font-size: 1.4rem; margin-bottom: 4px; }
+        .tipo-card-label { font-size: 0.75rem; color: #ccc; font-weight: 600; }
+        .tipo-card-desc  { font-size: 0.65rem; color: #555; margin-top: 2px; }
+
+        #modal-cedula-footer {
+            background: #1e1e1e;
+            border-top: 1px solid #2a2a2a;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+        .modal-btn {
+            height: 36px; padding: 0 18px;
+            border-radius: 6px; border: 1px solid #2a2a2a;
+            background: #1e1e1e; color: #c0c0c0;
+            font-size: 0.8rem; font-weight: 600;
+            cursor: pointer; transition: background 0.15s;
+        }
+        .modal-btn:hover { background: #2a2a2a; color: #fff; }
+        .modal-btn.primary { background: #1a3a7a; border-color: #2a5aaa; color: #7aaeff; }
+        .modal-btn.primary:hover { background: #1e4a9a; }
+        .modal-btn.success { background: #1a4a2a; border-color: #2a6a3a; color: #7aeea0; }
+        .modal-btn.success:hover { background: #1e5a30; }
+        .step-indicator { font-size: 0.72rem; color: #555; }
+
+        .pdf-check-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #1e1e1e;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            transition: border-color 0.15s;
+        }
+        .pdf-check-item:hover { border-color: #2979ff; }
+        .pdf-check-item.checked { border-color: #2979ff; background: #1a2040; }
+        .pdf-check-item input[type=checkbox] {
+            width: 16px; height: 16px;
+            accent-color: #2979ff;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .pdf-check-info { flex: 1; }
+        .pdf-check-fecha { font-size: 0.68rem; color: #2979ff; font-weight: 700; }
+        .pdf-check-nombre { font-size: 0.78rem; color: #ccc; margin-top: 2px; }
+
+        .modal-spinner {
+            display: none;
+            width: 18px; height: 18px;
+            border: 2px solid #2a2a2a; border-top: 2px solid #2979ff;
+            border-radius: 50%; animation: spin 0.8s linear infinite;
+        }
+    </style>
+</head>
+<body>
+
+<div id="toolbar">
+    <button class="tb-btn red icon" onclick="window.close()" title="Cerrar">&#x2715;</button>
+    <span class="tb-brand">LEXVIEW PRO</span>
+
+    <button class="tb-btn icon" onclick="cambiarZoom(-0.25)" title="Alejar">&#x2212;</button>
+    <span class="tb-zoom-label" id="zoom-label">100%</span>
+    <button class="tb-btn icon" onclick="cambiarZoom(0.25)" title="Acercar">+</button>
+
+    <div class="tb-sep"></div>
+    <button class="tb-btn icon" onclick="rotarContenido()" title="Rotar 90&#xB0;">&#x27F3;</button>
+    <div class="tb-sep"></div>
+
+    <button class="tb-btn green" onclick="toggleNotes()">&#x1F4DD; Notas</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn blue" onclick="abrirModalCedula()" title="Generar cedula o mandamiento">
+        &#x1F4C4; Cedula / Mandamiento
+    </button>
+    <div class="tb-sep"></div>
+
+    <div class="tb-search-wrap">
+        <span style="color:#444; font-size:0.9rem; line-height:1;">&#x1F50D;</span>
+        <input type="text" id="keyword-search" placeholder="Buscar... (Enter)">
+        <span id="search-counter"></span>
+        <div class="tb-search-nav">
+            <button onclick="navegarBuscador(-1)" title="Anterior">&#x25B2;</button>
+            <button onclick="navegarBuscador(1)"  title="Siguiente">&#x25BC;</button>
+        </div>
+    </div>
+
+    <div class="tb-spacer"></div>
+
+    <div class="tb-foja-wrap">
+        <span>Ir a foja</span>
+        <input type="number" id="goto-page-input" placeholder="N" min="1">
+    </div>
+    <button class="tb-btn icon" onclick="toggleFullScreen()" title="Pantalla completa">&#x26F6;</button>
+</div>
+
+<div id="loading-overlay">
+    <div class="spinner"></div>
+    <div id="loading-text">Iniciando visor...</div>
+</div>
+
+<div id="main-content">
+    <div id="viewport">
+        <div id="album-container">
+            <div id="album-wrapper">
+                <div id="album"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="notes-panel">
+    <div id="notes-header">
+        <span>&#x1F4DD; Notas del expediente</span>
+        <span class="close-btn" onclick="toggleNotes()">&#x2715;</span>
+    </div>
+    <div id="notes-list"></div>
+    <div id="notes-input-area">
+        <textarea id="notes-textarea" rows="3" placeholder="Anota algo sobre la foja actual..."></textarea>
+        <button class="btn-save-nota" onclick="guardarNota()">Guardar nota</button>
+    </div>
+</div>
+
+<!-- ══ MODAL CEDULA / MANDAMIENTO ══ -->
+<div id="modal-cedula-overlay">
+    <div id="modal-cedula">
+        <div id="modal-cedula-header">
+            <h2>&#x1F4C4; GENERAR CEDULA / MANDAMIENTO</h2>
+            <div class="close-modal" onclick="cerrarModalCedula()">&#x2715;</div>
+        </div>
+
+        <div id="modal-cedula-body">
+
+            <!-- PASO 1: Seleccionar tipo -->
+            <div class="cedula-step active" id="paso-1">
+                <div class="step-title">Paso 1 &mdash; Selecciona el tipo de documento</div>
+                <div class="tipo-grid">
+                    <div class="tipo-card selected" data-tipo="cedula_local" onclick="seleccionarTipo(this)">
+                        <div class="tipo-card-icon">&#x1F4CB;</div>
+                        <div class="tipo-card-label">Cedula Local</div>
+                        <div class="tipo-card-desc">Ac. 5 y 6/26 &mdash; Corrientes</div>
+                    </div>
+                    <div class="tipo-card" data-tipo="cedula_ley" onclick="seleccionarTipo(this)">
+                        <div class="tipo-card-icon">&#x1F4EC;</div>
+                        <div class="tipo-card-label">Cedula Ley 22172</div>
+                        <div class="tipo-card-desc">Otra jurisdiccion</div>
+                    </div>
+                    <div class="tipo-card" data-tipo="mandamiento_local" onclick="seleccionarTipo(this)">
+                        <div class="tipo-card-icon">&#x2696;&#xFE0F;</div>
+                        <div class="tipo-card-label">Mandamiento Local</div>
+                        <div class="tipo-card-desc">Estandarizado &mdash; Corrientes</div>
+                    </div>
+                    <div class="tipo-card" data-tipo="mandamiento_ley" onclick="seleccionarTipo(this)">
+                        <div class="tipo-card-icon">&#x1F4EE;</div>
+                        <div class="tipo-card-label">Mandamiento Ley 22172</div>
+                        <div class="tipo-card-desc">Otra jurisdiccion</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PASO 2: Seleccionar proveido -->
+            <div class="cedula-step" id="paso-2">
+                <div class="step-title">Paso 2 &mdash; Selecciona el proveido a notificar</div>
+                <div id="lista-proveidos">
+                    <div style="color:#555; text-align:center; padding:20px; font-size:0.82rem;">
+                        Cargando proveidos...
+                    </div>
+                </div>
+            </div>
+
+            <!-- PASO 3: Formulario -->
+            <div class="cedula-step" id="paso-3">
+                <div class="step-title">Paso 3 &mdash; Completa los datos</div>
+
+                <div class="form-section">
+                    <div class="form-section-title">Datos del Juzgado</div>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Juzgado</label>
+                            <input type="text" id="f-juzgado" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>N&#xB0; Expediente</label>
+                            <input type="text" id="f-nro-expte" readonly>
+                        </div>
+                    </div>
+                    <div class="form-grid full" style="margin-top:10px;">
+                        <div class="form-group">
+                            <label>Caratula</label>
+                            <input type="text" id="f-caratula" readonly>
+                        </div>
+                    </div>
+                    <div class="form-grid" style="margin-top:10px;">
+                        <div class="form-group">
+                            <label>Juez/a Dr./Dra.</label>
+                            <input type="text" id="f-juez" placeholder="Nombre del juez">
+                        </div>
+                        <div class="form-group">
+                            <label>Secretaria</label>
+                            <input type="text" id="f-secretaria">
+                        </div>
+                    </div>
+                    <div class="form-grid" style="margin-top:10px;" id="grupo-domicilio-juzgado">
+                        <div class="form-group">
+                            <label>Domicilio del Juzgado</label>
+                            <input type="text" id="f-domicilio-juzgado" placeholder="Ej: San Juan 1700">
+                        </div>
+                        <div class="form-group" id="grupo-correo-juzgado" style="display:none;">
+                            <label>Correo institucional</label>
+                            <input type="text" id="f-correo-juzgado" placeholder="juzgado@pjcorrientes.gov.ar">
+                        </div>
+                    </div>
+                    <div class="form-grid" style="margin-top:10px;" id="grupo-ley-extra">
+                        <div class="form-group">
+                            <label>Telefono del Juzgado</label>
+                            <input type="text" id="f-tel-juzgado" placeholder="(0379) 4...">
+                        </div>
+                        <div class="form-group">
+                            <label>Dependencia destinataria</label>
+                            <input type="text" id="f-dependencia-dest" placeholder="Juzgado receptor">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top:10px;">
+                        <label>Objeto de la Notificacion</label>
+                        <input type="text" id="f-objeto" placeholder="Ej: TRASLADO DE DEMANDA">
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">Destinatario</div>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Destinatario/s</label>
+                            <input type="text" id="f-destinatario" placeholder="Nombre y apellido">
+                        </div>
+                        <div class="form-group">
+                            <label>Domicilio</label>
+                            <input type="text" id="f-domicilio" placeholder="Calle y numero">
+                        </div>
+                    </div>
+                    <div class="form-grid" style="margin-top:10px;">
+                        <div class="form-group">
+                            <label>Caracter del Domicilio</label>
+                            <select id="f-caracter-domicilio">
+                                <option value="CONSTITUIDO">Constituido</option>
+                                <option value="REAL">Real</option>
+                                <option value="LEGAL">Legal</option>
+                                <option value="ELECTRONICO">Electronico</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Localidad</label>
+                            <input type="text" id="f-localidad" value="Capital">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">Texto de la Providencia / Resolucion</div>
+                    <div class="form-group">
+                        <textarea id="f-texto-providencia" rows="6"
+                            placeholder="Texto extraido del proveido. Podes editarlo antes de generar."></textarea>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">Copias para Traslado</div>
+                    <div class="form-group">
+                        <textarea id="f-copias-traslado" rows="3"
+                            placeholder="Ej: poder, demanda y titulo de deuda (dejar vacio si no hay copias)"></textarea>
+                    </div>
+                </div>
+
+                <div class="form-section" id="seccion-documental">
+                    <div class="form-section-title">&#x1F4C1; Copias para traslado &mdash; Selecciona los archivos para el QR</div>
+                    <div style="font-size:0.7rem; color:#555; margin-bottom:10px;">
+                        Los archivos seleccionados se suben automaticamente al servidor y el QR se genera solo.
+                    </div>
+                    <div id="lista-pdfs-documental">
+                        <div style="color:#444; font-size:0.78rem; text-align:center; padding:10px;">
+                            Cargando archivos del expediente...
+                        </div>
+                    </div>
+                    <div id="estado-subida" style="display:none; margin-top:8px; font-size:0.72rem; color:#2979ff;">
+                        &#x23F3; Subiendo archivos al servidor...
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">Fecha</div>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Dia</label>
+                            <input type="text" id="f-fecha-dia" placeholder="12">
+                        </div>
+                        <div class="form-group">
+                            <label>Mes</label>
+                            <input type="text" id="f-fecha-mes" placeholder="mayo">
+                        </div>
+                        <div class="form-group">
+                            <label>Anio</label>
+                            <input type="text" id="f-fecha-anio" value="2026">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- fin modal-body -->
+
+        <div id="modal-cedula-footer">
+            <span class="step-indicator" id="step-indicator">Paso 1 de 3</span>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <div class="modal-spinner" id="modal-spinner"></div>
+                <button class="modal-btn" id="btn-atras" onclick="pasoAnterior()" style="display:none;">&#x2190; Atras</button>
+                <button class="modal-btn primary" id="btn-siguiente" onclick="pasoSiguiente()">Siguiente &#x2192;</button>
+                <button class="modal-btn success" id="btn-generar" onclick="generarCedula()" style="display:none;">
+                    &#x2B07; Generar y Descargar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="footer">
+    <div id="progress-container"><div id="progress-bar"></div></div>
+    <div id="page-counter">Foja: &mdash; / &mdash;</div>
+</div>
+
+<script>
+// Datos del expediente inyectados desde Flask
+const EXPTE_NRO        = '{{ expte }}';
+const EXPTE_JUZGADO    = '{{ request.view_args.juzgado }}';
+const EXPTE_SECRETARIA = '{{ request.view_args.secretaria }}';
+const EXPTE_CARATULA   = {{ caratula_texto | tojson }};
+
+const pdfjsLib = window['pdfjs-dist/build/pdf'];
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
+
+let currentPdf     = null;
+let totalPages     = 0;
+let zoomActual     = 1;
+let rotacionActual = 0;
+let archivoPdfActual = '{{ archivo_pdf }}';
+
+const VIEWER_W     = 900;
+const VIEWER_H     = 650;
+const PDF_SCALE    = 4.5;
+const ZOOM_VISUAL_BASE = 0.80; // 100% del visor equivale al 80% visual anterior
+
+const paginasRenderizadas = new Set();
+let   scaleGlobal         = PDF_SCALE;
+
+async function renderizarSiNecesario(pageNum) {
+    if (paginasRenderizadas.has(pageNum)) return;
+    if (pageNum < 1 || pageNum > totalPages) return;
+    const pageEl = _getPageEl(pageNum);
+    if (!pageEl) return;
+    const canvas = pageEl.querySelector('canvas');
+    if (!canvas) return;
+    paginasRenderizadas.add(pageNum);
+    await renderizarPagina(pageNum, canvas, scaleGlobal);
+}
+
+async function precargarAlrededor(pageNum) {
+    const promesas = [];
+    for (let i = pageNum - 3; i <= pageNum + 3; i++) {
+        promesas.push(renderizarSiNecesario(i));
+    }
+    await Promise.all(promesas);
+}
+
+async function renderizarPagina(pageNumber, canvas, scale, cssScale = null) {
+    const page         = await currentPdf.getPage(pageNumber);
+    const renderScale  = scale || PDF_SCALE;
+    const displayScale = cssScale || renderScale;
+    const viewport     = page.getViewport({ scale: renderScale });
+    const displayVp    = page.getViewport({ scale: displayScale });
+    const outputScale  = window.devicePixelRatio || 1;
+
+    // Renderizamos con más resolución real, pero mantenemos el tamaño visual
+    // cuando el zoom se aplica por CSS. Esto evita pixelado sin romper turn.js.
+    canvas.width  = Math.floor(viewport.width  * outputScale);
+    canvas.height = Math.floor(viewport.height * outputScale);
+    canvas.style.width  = Math.floor(displayVp.width)  + 'px';
+    canvas.style.height = Math.floor(displayVp.height) + 'px';
+    canvas.parentElement.dataset.pageNumber = pageNumber;
+
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(outputScale, outputScale);
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+}
+
+async function cargarExpedienteAutomatico() {
+    $('#loading-overlay').css('display', 'flex');
+    try {
+        const url = "{{ url_for('obtener_pdf', nombre_pdf=archivo_pdf) }}?t=" + Date.now();
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('No se pudo cargar el PDF.');
+        const reader        = res.body.getReader();
+        const contentLength = +res.headers.get('Content-Length');
+        let received = 0, chunks = [];
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            received += value.length;
+            if (contentLength)
+                $('#loading-text').text(`Descargando... ${Math.round(received / contentLength * 100)}%`);
+        }
+        const buffer = new Uint8Array(received);
+        let pos = 0;
+        for (const c of chunks) { buffer.set(c, pos); pos += c.length; }
+        currentPdf = await pdfjsLib.getDocument({
+            data: buffer,
+            cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/cmaps/',
+            cMapPacked: true,
+        }).promise;
+        totalPages = currentPdf.numPages;
+        const primeraPagina = await currentPdf.getPage(1);
+        const vpNatural     = primeraPagina.getViewport({ scale: 1 });
+        const mitadAncho    = VIEWER_W / 2;
+        scaleGlobal = Math.min(mitadAncho / vpNatural.width, VIEWER_H / vpNatural.height, PDF_SCALE);
+        const album  = $('#album');
+        album.empty();
+        paginasRenderizadas.clear();
+        const vpEst   = primeraPagina.getViewport({ scale: scaleGlobal });
+        const anchoEst = Math.floor(vpEst.width);
+        const altoEst  = Math.floor(vpEst.height);
+        for (let i = 1; i <= totalPages; i++) {
+            const pageDiv = $('<div class="page"></div>');
+            const canvas  = document.createElement('canvas');
+            canvas.style.width  = anchoEst + 'px';
+            canvas.style.height = altoEst  + 'px';
+            canvas.width  = anchoEst;
+            canvas.height = altoEst;
+            pageDiv.attr('data-page-number', i);
+            pageDiv.append(canvas);
+            album.append(pageDiv);
+        }
+        $('#loading-text').text('Preparando visor...');
+        for (let i = 1; i <= Math.min(6, totalPages); i++) {
+            await renderizarSiNecesario(i);
+        }
+        album.turn({
+            width: VIEWER_W, height: VIEWER_H,
+            autoCenter: true, duration: 800,
+            acceleration: true, gradients: true, elevation: 50,
+            when: {
+                turned: async function(e, page) {
+                    actualizarFooter(page);
+                    await precargarAlrededor(page);
+                    if (ultimaBusqueda && fojasCoinc.includes(page)) {
+                        await resaltarBusquedaEnFoja(page, ultimaBusqueda);
+                    }
+                }
+            }
+        });
+        $('#album-wrapper').css({ width: VIEWER_W + 'px', height: VIEWER_H + 'px' });
+        actualizarFooter(1);
+        cargarNotas();
+        aplicarZoomVisual(false);
+        $('#loading-overlay').fadeOut(400);
+        setTimeout(async () => {
+            for (let i = 7; i <= totalPages; i++) {
+                if (!paginasRenderizadas.has(i)) {
+                    await renderizarSiNecesario(i);
+                    if (i % 10 === 0) await new Promise(r => setTimeout(r, 50));
+                }
+            }
+        }, 1000);
+    } catch (err) {
+        console.error('Error:', err);
+        $('#loading-text').html(
+            `<span style="color:#ff4444">&#x26A0;&#xFE0F; ERROR</span><br><small style="color:#666">${err.message}</small>`
+        );
+    }
+}
+
+function actualizarFooter(page) {
+    const pct = totalPages ? (page / totalPages * 100) : 0;
+    document.getElementById('progress-bar').style.width = pct + '%';
+    document.getElementById('page-counter').innerText   = `Foja: ${page} / ${totalPages}`;
+}
+
+$(document).ready(cargarExpedienteAutomatico);
+
+function _getPageEl(pageNum) {
+    return (
+        document.querySelector(`.page[data-page-number="${pageNum}"]`) ||
+        document.querySelectorAll('.page')[pageNum - 1] ||
+        null
+    );
+}
+
+async function asegurarTextLayer(pageNum) {
+    const pageEl = _getPageEl(pageNum);
+    if (!pageEl || pageEl.querySelector('.textLayer')) return !!pageEl;
+    try {
+        const page     = await currentPdf.getPage(pageNum);
+        const canvas   = pageEl.querySelector('canvas');
+        const naturalW = page.getViewport({ scale: 1 }).width;
+        const cssWidth = canvas ? parseFloat(canvas.style.width || canvas.getBoundingClientRect().width) : 0;
+        const scale    = cssWidth ? cssWidth / naturalW : scaleGlobal;
+        const viewport = page.getViewport({ scale });
+        const tc       = await page.getTextContent();
+        const tl = document.createElement('div');
+        tl.className    = 'textLayer';
+        tl.style.width  = viewport.width  + 'px';
+        tl.style.height = viewport.height + 'px';
+        pageEl.appendChild(tl);
+        await pdfjsLib.renderTextLayer({ textContent: tc, container: tl, viewport, textDivs: [] }).promise;
+        return true;
+    } catch (e) { return false; }
+}
+
+// BUSCADOR: busca por texto interno del PDF, navega por foja y resalta la palabra visible
+let fojasCoinc = [], idxCoinc = -1, ultimaBusqueda = '';
+const searchInput  = document.getElementById('keyword-search');
+const contadorSpan = document.getElementById('search-counter');
+
+function normalizarTextoBusqueda(txt) {
+    return (txt || '')
+        .toString()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .toLowerCase();
+}
+
+async function buscarTodo(query) {
+    if (!query || !currentPdf) return;
+
+    fojasCoinc = [];
+    idxCoinc = -1;
+    ultimaBusqueda = query;
+    contadorSpan.innerText = 'Buscando...';
+    $('#loading-overlay').show();
+    $('#loading-text').text('Buscando coincidencias...');
+
+    const q = normalizarTextoBusqueda(query);
+
+    try {
+        for (let i = 1; i <= totalPages; i++) {
+            const page = await currentPdf.getPage(i);
+            const tc   = await page.getTextContent();
+            const txt  = normalizarTextoBusqueda(tc.items.map(it => it.str).join(' '));
+
+            if (txt.includes(q)) fojasCoinc.push(i);
+
+            if (i % 10 === 0) {
+                $('#loading-text').text(`Buscando... foja ${i} de ${totalPages}`);
+                await new Promise(r => setTimeout(r, 1));
+            }
+        }
+
+        if (!fojasCoinc.length) {
+            contadorSpan.innerText = '0 resultados';
+            return;
+        }
+
+        idxCoinc = 0;
+        await irAResultadoBusqueda();
+    } catch (e) {
+        console.error('Error en búsqueda:', e);
+        contadorSpan.innerText = 'Error';
+        alert('Error buscando texto: ' + e.message);
+    } finally {
+        $('#loading-overlay').hide();
+    }
+}
+
+function navegarBuscador(dir) {
+    if (!fojasCoinc.length) return;
+    idxCoinc = (idxCoinc + dir + fojasCoinc.length) % fojasCoinc.length;
+    irAResultadoBusqueda();
+}
+
+async function irAResultadoBusqueda() {
+    if (idxCoinc < 0 || !fojasCoinc.length) return;
+
+    const foja = fojasCoinc[idxCoinc];
+    irAFoja(foja);
+    contadorSpan.innerText = (idxCoinc + 1) + ' / ' + fojasCoinc.length + ' fojas';
+
+    // Esperamos a que turn.js termine de cambiar de página y luego resaltamos.
+    setTimeout(async () => {
+        await renderizarSiNecesario(foja);
+        await resaltarBusquedaEnFoja(foja, ultimaBusqueda);
+    }, 350);
+}
+
+function irAFoja(foja) { $('#album').turn('page', foja); actualizarFooter(foja); }
+
+function limpiarSubrayados() {
+    $('.textLayer').unmark();
+    $('.textLayer mark').removeClass('current');
+}
+
+async function resaltarBusquedaEnFoja(foja, query) {
+    if (!query) return;
+
+    // Limpiamos solo marcas; dejamos capas existentes para no romper rendimiento.
+    $('.textLayer').unmark();
+
+    const ok = await asegurarTextLayer(foja);
+    if (!ok) return;
+
+    const pageEl = _getPageEl(foja);
+    if (!pageEl) return;
+
+    const tl = pageEl.querySelector('.textLayer');
+    if (!tl) return;
+
+    $(tl).mark(query, {
+        separateWordSearch: false,
+        accuracy: 'partially',
+        done: function() {
+            const marcas = tl.querySelectorAll('mark');
+            if (!marcas.length) return;
+            marcas[0].classList.add('current');
+            setTimeout(() => {
+                marcas[0].scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center',
+                    inline: 'center'
+                });
+            }, 120);
+        }
+    });
+}
+
+searchInput.addEventListener('keydown', async function(e) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+
+    const query = this.value.trim();
+    if (!query) return;
+
+    if (fojasCoinc.length && this.dataset.lastQuery === query) {
+        navegarBuscador(1);
+    } else {
+        this.dataset.lastQuery = query;
+        await buscarTodo(query);
+    }
+});
+
+searchInput.addEventListener('input', function() {
+    if (!this.value.trim()) {
+        fojasCoinc = [];
+        idxCoinc = -1;
+        ultimaBusqueda = '';
+        contadorSpan.innerText = '';
+        limpiarSubrayados();
+    }
+});
+
+// NOTAS
+function toggleNotes() { $('#notes-panel').toggleClass('open'); }
+
+function guardarNota() {
+    const texto = $('#notes-textarea').val().trim();
+    if (!texto) return;
+    const foja  = $('#album').turn('page') || 1;
+    const notas = JSON.parse(localStorage.getItem('notas_' + archivoPdfActual) || '[]');
+    notas.push({ id: Date.now(), foja, texto, fecha: new Date().toLocaleString('es-AR') });
+    localStorage.setItem('notas_' + archivoPdfActual, JSON.stringify(notas));
+    $('#notes-textarea').val('');
+    cargarNotas();
+}
+
+function cargarNotas() {
+    const notas = JSON.parse(localStorage.getItem('notas_' + archivoPdfActual) || '[]');
+    const lista = $('#notes-list');
+    lista.empty();
+    if (!notas.length) {
+        lista.html('<div style="color:#444;text-align:center;padding:24px;font-size:0.78rem;">Sin notas aun</div>');
+        return;
+    }
+    [...notas].reverse().forEach(n => {
+        lista.append(`
+            <div class="note-item" onclick="irAPagina(${n.foja})">
+                <span class="note-delete" onclick="event.stopPropagation();borrarNota(${n.id})">&#x1F5D1;</span>
+                <div class="note-foja">Foja ${n.foja}</div>
+                <div class="note-text">${n.texto}</div>
+                <div class="note-date">${n.fecha}</div>
+            </div>`);
+    });
+}
+
+function borrarNota(id) {
+    let notas = JSON.parse(localStorage.getItem('notas_' + archivoPdfActual) || '[]');
+    notas = notas.filter(n => n.id !== id);
+    localStorage.setItem('notas_' + archivoPdfActual, JSON.stringify(notas));
+    cargarNotas();
+}
+
+function irAPagina(p) { $('#album').turn('page', p); actualizarFooter(p); }
+
+function aplicarZoomVisual(actualizarLabel = true) {
+    const container = document.getElementById('album-container');
+    const zoomVisual = zoomActual * ZOOM_VISUAL_BASE;
+    container.style.transform = `scale(${zoomVisual})`;
+    container.style.transformOrigin = 'top center';
+    if (actualizarLabel) {
+        document.getElementById('zoom-label').innerText = Math.round(zoomActual * 100) + '%';
+    }
+}
+
+async function rerenderPaginasCercanasParaZoom(pageActual) {
+    const desde = Math.max(1, pageActual - 3);
+    const hasta = Math.min(totalPages, pageActual + 3);
+    const renderScale = scaleGlobal * zoomActual * ZOOM_VISUAL_BASE;
+
+    for (let i = desde; i <= hasta; i++) {
+        const pageEl = _getPageEl(i);
+        if (!pageEl) continue;
+        const canvas = pageEl.querySelector('canvas');
+        if (!canvas) continue;
+        await renderizarPagina(i, canvas, renderScale, scaleGlobal);
+        const tl = pageEl.querySelector('.textLayer');
+        if (tl) tl.remove();
+    }
+}
+
+async function cambiarZoom(delta) {
+    const vp        = document.getElementById('viewport');
+    const scrollXRatio = (vp.scrollLeft + vp.clientWidth  / 2) / Math.max(1, vp.scrollWidth);
+    const scrollYRatio =  vp.scrollTop                          / Math.max(1, vp.scrollHeight);
+
+    zoomActual = Math.min(Math.max(0.5, zoomActual + delta), 4.0);
+    aplicarZoomVisual(true);
+
+    const paginaActual = $('#album').turn('page') || 1;
+    await rerenderPaginasCercanasParaZoom(paginaActual);
+
+    if (ultimaBusqueda && fojasCoinc.length) {
+        await resaltarBusquedaEnFoja(paginaActual, ultimaBusqueda);
+    }
+
+    setTimeout(() => {
+        vp.scrollLeft = scrollXRatio * vp.scrollWidth  - vp.clientWidth / 2;
+        vp.scrollTop  = scrollYRatio * vp.scrollHeight;
+    }, 50);
+}
+
+
+function rotarContenido() {
+    rotacionActual = (rotacionActual + 90) % 360;
+    const escala = (rotacionActual % 180 === 0) ? 1 : 0.7;
+    $('canvas').css('transform', `rotate(${rotacionActual}deg) scale(${escala})`);
+}
+
+function toggleFullScreen() {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+}
+
+document.getElementById('goto-page-input').addEventListener('keypress', function(e) {
+    if (e.key !== 'Enter') return;
+    const p = parseInt(this.value);
+    if (p >= 1 && p <= totalPages) irAPagina(p);
+    this.blur();
+});
+
+let dragging = false, dStartX, dStartY, dScrollLeft, dScrollTop;
+const vp = document.getElementById('viewport');
+vp.addEventListener('mousedown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    dragging = true; vp.classList.add('dragging');
+    dStartX = e.pageX; dStartY = e.pageY;
+    dScrollLeft = vp.scrollLeft; dScrollTop = vp.scrollTop;
+    e.preventDefault();
+});
+window.addEventListener('mouseup', () => { dragging = false; vp.classList.remove('dragging'); });
+vp.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    e.preventDefault();
+    vp.scrollLeft = dScrollLeft - (e.pageX - dStartX);
+    vp.scrollTop  = dScrollTop  - (e.pageY - dStartY);
+});
+window.addEventListener('wheel', e => {
+    if (e.ctrlKey) { e.preventDefault(); cambiarZoom(e.deltaY > 0 ? -0.2 : 0.2); }
+    else if (e.shiftKey) { e.preventDefault(); vp.scrollLeft += e.deltaY; }
+}, { passive: false });
+$(window).on('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.keyCode === 37) $('#album').turn('previous');
+    if (e.keyCode === 39) $('#album').turn('next');
+});
+
+// MODAL CEDULA
+let pasoActual = 1;
+let tipoSeleccionado = 'cedula_local';
+let proveidoSeleccionado = null;
+let proveidosSeleccionados = [];  // ← múltiple selección
+
+function abrirModalCedula() {
+    pasoActual = 1;
+    tipoSeleccionado = 'cedula_local';
+    proveidoSeleccionado = null;
+    proveidosSeleccionados = [];
+    mostrarPaso(1);
+    document.getElementById('modal-cedula-overlay').classList.add('open');
+}
+
+function cerrarModalCedula() {
+    document.getElementById('modal-cedula-overlay').classList.remove('open');
+}
+
+function mostrarPaso(n) {
+    pasoActual = n;
+    document.querySelectorAll('.cedula-step').forEach(el => el.classList.remove('active'));
+    document.getElementById(`paso-${n}`).classList.add('active');
+    document.getElementById('step-indicator').textContent = `Paso ${n} de 3`;
+    document.getElementById('btn-atras').style.display     = n > 1 ? 'block' : 'none';
+    document.getElementById('btn-siguiente').style.display = n < 3 ? 'block' : 'none';
+    document.getElementById('btn-generar').style.display   = n === 3 ? 'block' : 'none';
+}
+
+function seleccionarTipo(el) {
+    document.querySelectorAll('.tipo-card').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    tipoSeleccionado = el.dataset.tipo;
+    const esLey = tipoSeleccionado.includes('ley');
+    document.getElementById('grupo-correo-juzgado').style.display = esLey ? 'flex' : 'none';
+    document.getElementById('grupo-ley-extra').style.display       = esLey ? 'grid' : 'none';
+}
+
+async function pasoSiguiente() {
+    if (pasoActual === 1) {
+        mostrarPaso(2);
+        await cargarProveidos();
+    } else if (pasoActual === 2) {
+        if (!proveidosSeleccionados.length) {
+            alert('Selecciona al menos un proveido antes de continuar.');
+            return;
+        }
+        mostrarPaso(3);
+        await cargarFormulario();
+    }
+}
+
+function pasoAnterior() {
+    if (pasoActual > 1) mostrarPaso(pasoActual - 1);
+}
+
+async function cargarProveidos() {
+    const lista = document.getElementById('lista-proveidos');
+    lista.innerHTML = '<div style="color:#555;text-align:center;padding:20px;font-size:0.82rem;">Cargando...</div>';
+    try {
+        const url = `/cedulas/proveidos/${encodeURIComponent(EXPTE_JUZGADO)}/${encodeURIComponent(EXPTE_SECRETARIA)}/${encodeURIComponent(EXPTE_NRO)}`;
+        const res  = await fetch(url);
+        const data = await res.json();
+        if (!data.proveidos || data.proveidos.length === 0) {
+            lista.innerHTML = '<div style="color:#555;text-align:center;padding:30px;font-size:0.82rem;">No se encontraron proveidos en este expediente.<br><small style="color:#444">Solo se listan las actuaciones del juzgado (no escritos de parte).</small></div>';
+            return;
+        }
+        lista.innerHTML = '<div style="font-size:0.68rem;color:#555;margin-bottom:10px;letter-spacing:0.5px;">Podés seleccionar más de uno — se incluirán en recuadros separados.</div>';
+        data.proveidos.forEach(p => {
+            const div = document.createElement('div');
+            div.className = 'proveido-item';
+            div.dataset.nombre = p.nombre;
+            div.innerHTML = `
+                <div class="proveido-fecha">${p.fecha}</div>
+                <div class="proveido-extracto">${p.extracto}</div>
+                <div class="proveido-check">&#x2713;</div>
+            `;
+            div.addEventListener('click', () => seleccionarProveido(div, p));
+            lista.appendChild(div);
+        });
+    } catch (e) {
+        lista.innerHTML = `<div style="color:#ff4444;text-align:center;padding:20px;">Error: ${e.message}</div>`;
+    }
+}
+
+function seleccionarProveido(el, proveido) {
+    el.classList.toggle('selected');
+    const idx = proveidosSeleccionados.findIndex(p => p.nombre === proveido.nombre);
+    if (idx >= 0) {
+        proveidosSeleccionados.splice(idx, 1);
+    } else {
+        proveidosSeleccionados.push(proveido);
+    }
+    // Compatibilidad con código legacy
+    proveidoSeleccionado = proveidosSeleccionados[0] || null;
+}
+
+async function cargarFormulario() {
+    document.getElementById('f-juzgado').value    = EXPTE_JUZGADO;
+    document.getElementById('f-nro-expte').value  = EXPTE_NRO;
+    document.getElementById('f-secretaria').value = EXPTE_SECRETARIA;
+    document.getElementById('f-caratula').value   = EXPTE_CARATULA;
+
+    const hoy = new Date();
+    const meses = ['enero','febrero','marzo','abril','mayo','junio',
+                   'julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    document.getElementById('f-fecha-dia').value  = hoy.getDate();
+    document.getElementById('f-fecha-mes').value  = meses[hoy.getMonth()];
+    document.getElementById('f-fecha-anio').value = hoy.getFullYear();
+
+    if (proveidosSeleccionados.length) {
+        // Objeto: concatenar extractos de todos los seleccionados
+        document.getElementById('f-objeto').value =
+            proveidosSeleccionados.map(p => p.extracto).join(' / ');
+
+        // Cargar texto de cada proveído y unirlos con separador
+        const textos = [];
+        for (const prov of proveidosSeleccionados) {
+            try {
+                const url = `/cedulas/texto_proveido?juzgado=${encodeURIComponent(EXPTE_JUZGADO)}&secretaria=${encodeURIComponent(EXPTE_SECRETARIA)}&expte=${encodeURIComponent(EXPTE_NRO)}&nombre=${encodeURIComponent(prov.nombre)}`;
+                const res  = await fetch(url);
+                const data = await res.json();
+                if (data.texto) textos.push(data.texto);
+            } catch(e) {
+                console.warn('No se pudo extraer texto:', e);
+            }
+        }
+        // Separador visible entre proveídos — el backend los splitea por este delimitador
+        document.getElementById('f-texto-providencia').value = textos.join('\n\n---\n\n');
+    }
+
+    await cargarPdfsDocumental();
+
+    const esLey = tipoSeleccionado.includes('ley');
+    document.getElementById('grupo-correo-juzgado').style.display = esLey ? 'flex' : 'none';
+    document.getElementById('grupo-ley-extra').style.display       = esLey ? 'grid' : 'none';
+}
+
+async function _enviarCedula() {
+    const spinner = document.getElementById('modal-spinner');
+    const btnGen  = document.getElementById('btn-generar');
+    spinner.style.display = 'block';
+    btnGen.disabled = true;
+    btnGen.innerHTML = 'Generando...';
+
+    try {
+        // Separar textos por el delimitador ---
+        const textoRaw  = document.getElementById('f-texto-providencia').value;
+        const textosProv = textoRaw.split(/\n\s*---\s*\n/).map(t => t.trim()).filter(Boolean);
+
+        // Rutas de archivos seleccionados para unificar PDF de copias
+        const archivosParaCopias = obtenerArchivosSeleccionados();
+
+        const formData = new FormData();
+        formData.append('tipo',                tipoSeleccionado);
+        formData.append('juzgado',             document.getElementById('f-juzgado').value);
+        formData.append('nro_expte',           document.getElementById('f-nro-expte').value);
+        formData.append('caratula',            document.getElementById('f-caratula').value);
+        formData.append('juez',                document.getElementById('f-juez').value);
+        formData.append('secretaria',          document.getElementById('f-secretaria').value);
+        formData.append('domicilio_juzgado',   document.getElementById('f-domicilio-juzgado').value);
+        formData.append('correo_juzgado',      document.getElementById('f-correo-juzgado').value);
+        formData.append('tel_juzgado',         document.getElementById('f-tel-juzgado').value);
+        formData.append('dependencia_dest',    document.getElementById('f-dependencia-dest').value);
+        formData.append('objeto_notificacion', document.getElementById('f-objeto').value);
+        formData.append('destinatario',        document.getElementById('f-destinatario').value);
+        formData.append('domicilio',           document.getElementById('f-domicilio').value);
+        formData.append('caracter_domicilio',  document.getElementById('f-caracter-domicilio').value);
+        formData.append('localidad',           document.getElementById('f-localidad').value);
+        formData.append('textos_providencia',  JSON.stringify(textosProv));
+        formData.append('copias_traslado',     document.getElementById('f-copias-traslado').value);
+        formData.append('rutas_copias',        JSON.stringify(archivosParaCopias));
+        formData.append('url_drive',           window._urlDocumental || '');
+        formData.append('fecha_dia',           document.getElementById('f-fecha-dia').value);
+        formData.append('fecha_mes',           document.getElementById('f-fecha-mes').value);
+        formData.append('fecha_anio',          document.getElementById('f-fecha-anio').value);
+
+        const res = await fetch('/cedulas/generar', { method: 'POST', body: formData });
+        if (!res.ok) throw new Error('Error en el servidor al generar el documento.');
+
+        const blob  = await res.blob();
+        const url   = URL.createObjectURL(blob);
+        const a     = document.createElement('a');
+        a.href      = url;
+        const cd    = res.headers.get('Content-Disposition') || '';
+        const match = cd.match(/filename="?([^"]+)"?/);
+        a.download  = match ? match[1] : 'cedula.docx';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        cerrarModalCedula();
+
+    } catch(e) {
+        alert('Error generando el documento: ' + e.message);
+    } finally {
+        spinner.style.display = 'none';
+        btnGen.disabled = false;
+        btnGen.innerHTML = '&#x2B07; Generar y Descargar';
+    }
+}
+
+// Wrapper que sube documental primero y luego genera
+async function generarCedula() {
+    const archivosSeleccionados = obtenerArchivosSeleccionados();
+    let urlDrive = '';
+    if (archivosSeleccionados.length > 0) {
+        urlDrive = await subirDocumental();
+        if (!urlDrive) return;
+    }
+    window._urlDocumental = urlDrive;
+    await _enviarCedula();
+}
+
+// DOCUMENTAL
+async function cargarPdfsDocumental() {
+    const lista = document.getElementById('lista-pdfs-documental');
+    if (!lista) return;
+    try {
+        const url = `/documental/listar/${encodeURIComponent(EXPTE_JUZGADO)}/${encodeURIComponent(EXPTE_SECRETARIA)}/${encodeURIComponent(EXPTE_NRO)}`;
+        const res  = await fetch(url);
+        const data = await res.json();
+        if (!data.archivos || data.archivos.length === 0) {
+            lista.innerHTML = '<div style="color:#444;font-size:0.78rem;text-align:center;padding:10px;">No hay archivos disponibles en este expediente.</div>';
+            return;
+        }
+        lista.innerHTML = '';
+        data.archivos.forEach(archivo => {
+            const div = document.createElement('label');
+            div.className = 'pdf-check-item';
+            div.innerHTML = `
+                <input type="checkbox" value="${archivo.nombre}" onchange="togglePdfCheck(this)">
+                <div class="pdf-check-info">
+                    <div class="pdf-check-fecha">${archivo.fecha}</div>
+                    <div class="pdf-check-nombre">${archivo.extracto}</div>
+                </div>
+            `;
+            lista.appendChild(div);
+        });
+    } catch(e) {
+        lista.innerHTML = `<div style="color:#ff4444;font-size:0.78rem;padding:10px;">Error cargando archivos: ${e.message}</div>`;
+    }
+}
+
+function togglePdfCheck(checkbox) {
+    const item = checkbox.closest('.pdf-check-item');
+    item.classList.toggle('checked', checkbox.checked);
+}
+
+function obtenerArchivosSeleccionados() {
+    return Array.from(
+        document.querySelectorAll('#lista-pdfs-documental input[type=checkbox]:checked')
+    ).map(cb => cb.value);
+}
+
+async function subirDocumental() {
+    const archivos = obtenerArchivosSeleccionados();
+    if (archivos.length === 0) return null;
+    const estado = document.getElementById('estado-subida');
+    estado.style.display = 'block';
+    estado.textContent = '⏳ Subiendo archivos al servidor...';
+    try {
+        const res = await fetch('/documental/subir', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                juzgado:    EXPTE_JUZGADO,
+                secretaria: EXPTE_SECRETARIA,
+                expte:      EXPTE_NRO,
+                archivos:   archivos
+            })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+            estado.style.color = '#ff4444';
+            estado.textContent = '❌ Error: ' + (data.error || 'No se pudo subir');
+            return null;
+        }
+        estado.style.color = '#00e676';
+        estado.textContent = `✅ ${archivos.length} archivo(s) subido(s) correctamente`;
+        return data.url;
+    } catch(e) {
+        estado.style.color = '#ff4444';
+        estado.textContent = '❌ Error de conexion: ' + e.message;
+        return null;
+    }
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') cerrarModalCedula();
+});
+
+document.getElementById('modal-cedula-overlay').addEventListener('click', function(e) {
+    if (e.target === this) cerrarModalCedula();
+});
+</script>
+</body>
+</html>

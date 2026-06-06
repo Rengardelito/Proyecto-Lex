@@ -1,0 +1,36 @@
+
+{
+  "id": "/",
+  "name": "LexView Pro",
+  "short_name": "LexView",
+  "start_url": "/login",
+  "orientation": "portrait-primary",
+  "display": "standalone",
+  "background_color": "#0d0d0d",
+  "theme_color": "#007bff",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/static/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/static/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Escritorio LexView"
+    },
+    {
+      "src": "/static/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Celular LexView"
+    }
+  ]
+}

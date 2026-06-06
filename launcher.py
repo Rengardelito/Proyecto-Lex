@@ -416,7 +416,7 @@ class AutoUpdater:
     def run(self) -> bool:
         """
         Ejecuta el ciclo completo de update.
-        Retorna True si se aplicó una actualización (hay que relanzar).
+        Retorna True si se aplicó una actualización.
         """
         update_info = self.check_for_update()
         if not update_info:
@@ -424,10 +424,9 @@ class AutoUpdater:
 
         new_version   = update_info["version"]
         download_url  = update_info["download_url"]
-        sha256        = update_info.get("sha256")  # opcional
+        sha256        = update_info.get("sha256")
         changelog     = update_info.get("changelog", "")
 
-        # Preguntar al usuario (en hilo principal de Tk)
         msg = f"Hay una nueva versión disponible: v{new_version}\n"
         if changelog:
             msg += f"\nNovedades:\n{changelog}\n"
@@ -440,59 +439,39 @@ class AutoUpdater:
         zip_path = self.download_update(download_url, sha256)
         if not zip_path:
             messagebox.showerror(
-                "Error", "No se pudo descargar la actualización.\nSe iniciará la versión actual."
+                "Error",
+                "No se pudo descargar la actualización.\nSe iniciará la versión actual."
             )
             return False
 
         success = self.apply_update(zip_path, new_version)
 
-        # Limpiar temp
-        shutil.rmtree(zip_path.parent, ignore_errors=True)
-
         if success:
-
             self.splash.set_status(f"✓ Actualizado a v{new_version}", 100)
             time.sleep(1)
 
-            # ── Crear BAT de actualización ───────────────────────
-            bat_path = self.base_dir / "update.bat"
+            try:
+                shutil.rmtree(zip_path.parent, ignore_errors=True)
+            except Exception:
+                pass
 
-            bat_content = r'''@echo off
-
-        timeout /t 3 /nobreak >nul
-
-        taskkill /F /IM LexViewPro.exe >nul 2>&1
-
-        xcopy "%~dp0temp_update\*" "%~dp0" /E /Y /I
-
-        start "" "%~dp0LexViewPro.exe"
-
-        del "%~f0"
-        '''
-
-            bat_path.write_text(bat_content, encoding="ascii")
-
-            # ── Extraer ZIP a temp_update ────────────────────────
-            temp_update = self.base_dir / "temp_update"
-
-            if temp_update.exists():
-                shutil.rmtree(temp_update, ignore_errors=True)
-
-            temp_update.mkdir(exist_ok=True)
-
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                zf.extractall(temp_update)
-
-            # ── Ejecutar BAT ─────────────────────────────────────
-            subprocess.Popen(
-                ["cmd", "/c", str(bat_path)],
-                cwd=str(self.base_dir)
+            messagebox.showinfo(
+                "Actualización completada",
+                f"LexView Pro se actualizó a v{new_version}.\nEl sistema se reiniciará ahora."
             )
 
-            # ── Cerrar launcher actual ───────────────────────────
             self.splash.close()
-            sys.exit(0)
+
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+            return True
+
         else:
+            try:
+                shutil.rmtree(zip_path.parent, ignore_errors=True)
+            except Exception:
+                pass
+
             messagebox.showerror(
                 "Error en la actualización",
                 "No se pudo aplicar la actualización.\nSe restauró la versión anterior."
