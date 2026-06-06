@@ -194,12 +194,41 @@ def ejecutar_clasificacion(usuario_id, usuario_nombre, socketio, app):
                 'progreso': progreso
             })
 
+            with app.app_context():
+                causa_previa = CausaInfo.query.filter(
+                    CausaInfo.usuario_id == usuario_id,
+                    CausaInfo.nombre_carpeta == nombre_folder
+                ).first()
+
+                if not causa_previa:
+                    causa_previa = CausaInfo.query.filter(
+                        CausaInfo.usuario_id == usuario_id,
+                        CausaInfo.numero_base == numero_base_inicial,
+                        CausaInfo.anio == anio_inicial
+                    ).first()
+
+                localidad_busqueda = (
+                    causa_previa.localidad
+                    if causa_previa and causa_previa.localidad
+                    else "Capital"
+                )
+
+                tipo_busqueda = (
+                    causa_previa.tipo
+                    if causa_previa and causa_previa.tipo
+                    else tipo_inicial
+                )
+
+            socketio.emit('bot_log', {
+                'log': [f'🌎 Buscando {tipo_busqueda or ""} {numero_visible_inicial} en {localidad_busqueda}']
+            })
+
             datos = buscar_expediente(
                 driver,
                 numero_base_inicial,
-                tipo_codigo=tipo_inicial if tipo_inicial else None
+                tipo_codigo=tipo_busqueda if tipo_busqueda else None,
+                localidad=localidad_busqueda
             )
-
             if datos:
                 juz_final = datos.get('juzgado') or juz_final
                 sec_final = datos.get('secretaria') or sec_final
@@ -290,6 +319,8 @@ def ejecutar_clasificacion(usuario_id, usuario_nombre, socketio, app):
                             tipo=tipo_final,
                             numero_base=numero_base_final,
                             anio=anio_final,
+                            localidad=localidad_busqueda,
+                            nombre_carpeta=nombre_folder,
 
                             juzgado=juz_final,
                             secretaria=sec_final,
@@ -334,6 +365,8 @@ def ejecutar_clasificacion(usuario_id, usuario_nombre, socketio, app):
                         existe.juzgado = juz_final
                         existe.secretaria = sec_final
                         existe.demandado = demandado_final
+                        existe.localidad = localidad_busqueda
+                        existe.nombre_carpeta = nombre_folder
                         cambio = True
 
                         # CLAVE:

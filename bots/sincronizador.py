@@ -123,7 +123,7 @@ def ejecutar_sincronizacion(
                     "tipo": c.tipo or "",
                     "juzgado": c.juzgado or "SIN JUZGADO",
                     "secretaria": c.secretaria or "SIN SECRETARIA",
-                    "localidad": "Capital",
+                    "localidad": c.localidad or "Capital",
                 }
                 for c in causas
             ]
@@ -388,6 +388,7 @@ def ejecutar_completar_historial(usuario_id, usuario_nombre, socketio, app, max_
                     juzgado = db_causa.juzgado or causa["juzgado"]
                     secretaria = db_causa.secretaria or causa["secretaria"]
                     tipo = db_causa.tipo or tipo
+                    localidad_expte = db_causa.localidad or localidad_expte
                 else:
                     juzgado = causa["juzgado"]
                     secretaria = causa["secretaria"]

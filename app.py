@@ -241,6 +241,33 @@ def importar_desde_lista():
     if not lineas:
         return jsonify({"success": False, "message": "No se encontraron expedientes válidos."}), 400
 
+    def parsear_localidad(linea):
+        LOCALIDADES_VALIDAS = [
+            'Capital', 'Alvear', 'Bella Vista', 'Beron de Astrada', 'Caa Cati',
+            'Colonia Liebig', 'Concepcion', 'Curuzú Cuatiá', 'Curuzu Cuatia',
+            'Empedrado', 'Esquina', 'Gdor. Martinez', 'Gdor. Virasoro', 'Goya',
+            'Ita Ibate', 'Itati', 'Ituzaingo', 'La Cruz', 'Loreto', 'Mburucuya',
+            'Mercedes', 'Mocoreta', 'Monte Caseros', 'Paso de la Patria',
+            'Paso de los Libres', 'Perugorria', 'Saladas', 'San Carlos',
+            'San Cosme', 'San Luis del Palmar', 'San Miguel', 'San Roque',
+            'Santa Lucia', 'Santa Rosa', 'Santo Tome', 'Santo Tomé', 'Sauce', 'Yapeyu'
+        ]
+
+        localidad = "Capital"
+        texto_expte = str(linea or "").strip()
+
+        if " - " in texto_expte:
+            partes = texto_expte.rsplit(" - ", 1)
+            posible_loc = partes[1].strip()
+
+            for loc in LOCALIDADES_VALIDAS:
+                if loc.upper() == posible_loc.upper():
+                    localidad = loc
+                    texto_expte = partes[0].strip()
+                    break
+
+        return texto_expte, localidad
+
     def parsear_identidad_expte(texto):
         texto = str(texto or "").strip().upper()
         texto = texto.replace("/", "-")
@@ -269,6 +296,7 @@ def importar_desde_lista():
                     numero_base = m.group(1)
 
         numero_visible = f"{numero_base}-{anio}" if anio else numero_base
+
         return tipo, numero_base, anio, numero_visible
 
     try:
@@ -282,6 +310,7 @@ def importar_desde_lista():
                 os.makedirs(ruta_importados, exist_ok=True)
 
                 creados = 0
+                ya_existian = 0
                 lote = datetime.now().strftime("%Y%m%d_%H%M%S")
 
                 for linea in lineas:
@@ -290,7 +319,8 @@ def importar_desde_lista():
                     if not linea:
                         continue
 
-                    tipo, numero_base, anio, numero_visible = parsear_identidad_expte(linea)
+                    texto_expte, localidad = parsear_localidad(linea)
+                    tipo, numero_base, anio, numero_visible = parsear_identidad_expte(texto_expte)
 
                     if not numero_base:
                         socketio.emit('bot_status', {
@@ -298,8 +328,6 @@ def importar_desde_lista():
                         })
                         continue
 
-                    # Carpeta en IMPORTADOS conserva el tipo si existe,
-                    # así clasificador puede usarlo para desambiguar.
                     if tipo:
                         nombre_carpeta = f"{tipo}-{numero_base}-{anio}" if anio else f"{tipo}-{numero_base}"
                     else:
@@ -310,49 +338,59 @@ def importar_desde_lista():
 
                     ruta_expte = os.path.join(ruta_importados, nombre_carpeta)
 
+                    query = CausaInfo.query.filter(
+                        CausaInfo.usuario_id == u_id,
+                        CausaInfo.numero_base == numero_base,
+                        CausaInfo.anio == anio,
+                        CausaInfo.localidad == localidad
+                    )
+
+                    if tipo:
+                        existe_db = query.filter(CausaInfo.tipo == tipo).first()
+                    else:
+                        existe_db = query.first()
+
                     if not os.path.exists(ruta_expte):
                         os.makedirs(ruta_expte)
+                        carpeta_nueva = True
+                    else:
+                        carpeta_nueva = False
 
-                        query = CausaInfo.query.filter(
-                            CausaInfo.usuario_id == u_id,
-                            CausaInfo.numero_base == numero_base,
-                            CausaInfo.anio == anio
+                    
+
+                    if not existe_db:
+                        nueva = CausaInfo(
+                            numero=numero_visible,
+                            tipo=tipo,
+                            numero_base=numero_base,
+                            anio=anio,
+                            localidad=localidad,
+                            nombre_carpeta=nombre_carpeta,
+                            usuario_id=u_id,                            
+                            estado="Importado",
+                            necesita_sync=True,
+                            estado_sync="pendiente",
+                            lote_importacion=lote
                         )
 
-                        if tipo:
-                            existe_db = query.filter(CausaInfo.tipo == tipo).first()
-                        else:
-                            existe_db = query.first()
-
-                        if not existe_db:
-                            nueva = CausaInfo(
-                                numero=numero_visible,
-                                tipo=tipo,
-                                numero_base=numero_base,
-                                anio=anio,
-                                usuario_id=u_id,
-                                estado="Importado",
-                                necesita_sync=True,
-                                estado_sync="pendiente",
-                                lote_importacion=lote
-                            )
-
-                            db.session.add(nueva)
-                            db.session.commit()
+                        db.session.add(nueva)
+                        db.session.commit()
 
                         creados += 1
 
                         socketio.emit('bot_status', {
-                            'msg': f'✅ Carpeta creada: {nombre_carpeta}'
+                            'msg': f'✅ Carpeta creada: {nombre_carpeta} — {localidad}'
                         })
 
                     else:
+                        ya_existian += 1
+
                         socketio.emit('bot_status', {
-                            'msg': f'⏩ Ya existe: {nombre_carpeta}'
+                            'msg': f'⏩ Ya existe en DB: {nombre_carpeta} — {localidad}'
                         })
 
                 socketio.emit('bot_status', {
-                    'msg': f'🏁 {creados} carpetas creadas en IMPORTADOS'
+                    'msg': f'🏁 Importación lista: {creados} nuevos, {ya_existian} existentes'
                 })
                 socketio.emit('bot_finished', {})
 
@@ -783,7 +821,7 @@ def ejecutar_sync_con_cantidad(
                 "tipo": c.tipo or "",
                 "juzgado": c.juzgado or "SIN JUZGADO",
                 "secretaria": c.secretaria or "SIN SECRETARIA",
-                "localidad": "Capital",
+                "localidad": c.localidad or "Capital",
                 "cantidad": cantidad_int
             })
 
@@ -903,16 +941,34 @@ def run_completar_historial_selectivo():
 @login_required
 @requiere_feature('auditoria')
 def run_auditoria():
-    u_id   = current_user.id
+    u_id = current_user.id
     u_name = current_user.username
-    lista  = request.form.get('lista', '')
-    modo   = request.form.get('modo', 'ultimo')
+
+    lista = request.form.get('lista', '')
+
+    cantidad = request.form.get('cantidad', '5')
+
+    try:
+        cantidad_int = None if cantidad == 'todas' else int(cantidad)
+    except Exception:
+        cantidad_int = 5
+
     if not lista.strip():
         return jsonify({"success": False, "message": "Lista vacía"})
+
     def hilo():
         from bots.auditor import ejecutar_auditoria
-        ejecutar_auditoria(u_id, u_name, socketio, app, lista, modo)
+        ejecutar_auditoria(
+            u_id,
+            u_name,
+            socketio,
+            app,
+            lista,
+            cantidad_int
+        )
+
     threading.Thread(target=hilo, daemon=True).start()
+
     return jsonify({"success": True})
 
 

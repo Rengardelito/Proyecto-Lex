@@ -46,6 +46,7 @@ class CausaInfo(db.Model):
     tipo = db.Column(db.String(20), default="", index=True)
     numero_base = db.Column(db.String(50), nullable=True, index=True)
     anio = db.Column(db.String(10), nullable=True, index=True)
+    localidad = db.Column(db.String(100), default="Capital")
 
     nombre_carpeta      = db.Column(db.String(100))
     demandado           = db.Column(db.String(200), default='SIN CARATULAR')
