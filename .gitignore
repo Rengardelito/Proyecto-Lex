@@ -42,3 +42,6 @@ LexView_*.zip
 Thumbs.db
 IMPORTAR_AQUI/*
 !IMPORTAR_AQUI/.gitkeep
+
+# Configuracion local
+data/

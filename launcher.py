@@ -118,7 +118,7 @@ def checksum_ok(filepath: Path, expected_sha256: str) -> bool:
     with open(filepath, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             sha256.update(chunk)
-    return sha256.hexdigest() == expected_sha256
+    return sha256.hexdigest().lower() == expected_sha256.lower()
 
 
 # ════════════════════════════════════════════════════════════
@@ -291,8 +291,8 @@ class AutoUpdater:
                     log.error("Checksum inválido. Abortando update.")
                     shutil.rmtree(tmp_dir, ignore_errors=True)
                     return None
-                log.info("Checksum OK.")
 
+                log.info("Checksum OK.")
             return zip_path
 
         except Exception as e:
@@ -462,7 +462,8 @@ class AutoUpdater:
 
             self.splash.close()
 
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            subprocess.Popen([sys.executable] + sys.argv, cwd=str(self.base_dir))
+            sys.exit(0)
 
             return True
 

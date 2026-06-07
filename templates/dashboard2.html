@@ -366,32 +366,6 @@
             .sidebar { position: relative; width: 100%; top: 0; height: auto; }
             #panel-detalle { right: 0; }
         }
-        .btn-modal-sync {
-            padding: 10px;
-            background: #00bcd4;
-            border: none;
-            color: #000;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 0.74rem;
-            font-weight: 700;
-            font-family: var(--mono);
-        }
-
-        .btn-modal-sync:hover {
-            filter: brightness(1.12);
-        }
-
-        .btn-modal-sync.btn-sec {
-            background: transparent;
-            color: var(--text);
-            border: 1px solid var(--border2);
-        }
-
-        .btn-modal-sync.btn-sec:hover {
-            color: var(--text-bright);
-            border-color: var(--blue);
-        }
     </style>
 </head>
 <body>
@@ -738,21 +712,12 @@
 
         function _estadoSyncCard(card) {
             if (!card) return '';
-
             var badge = card.querySelector('.sync-badge');
             if (!badge) return '';
-
             var t = (badge.textContent || '').toLowerCase();
-
             if (t.includes('pend')) return 'pendiente';
-
-            if (t.includes('parcial')) return 'pendiente';
-
             if (t.includes('error')) return 'error';
-
-            if (t.includes('ok') || t.includes('sinc'))
-                return 'sincronizado';
-
+            if (t.includes('ok') || t.includes('sinc')) return 'sincronizado';
             return '';
         }
 
@@ -828,17 +793,7 @@ function procesarDataBot(data) {
 
 socket.on('status_update', procesarDataBot);
 socket.on('bot_status', procesarDataBot);
-socket.on('clasificacion_completa', function(data) {
 
-    window.__ultimoLoteClasificado = data.lote || null;
-
-    console.log(
-        '[LOTE CLASIFICADO]',
-        window.__ultimoLoteClasificado
-    );
-
-    mostrarModalSincronizarCamada(data);
-});
 socket.on('actualizacion_completa', function(data) {
     
     console.log('DEBUG tarjetas:', document.querySelectorAll('.expte-card').length);
@@ -1178,9 +1133,8 @@ socket.on('bot_finished', function() {
 
         // ── Bots ──────────────────────────────────────────────
         function iniciarClasificador()  { if(confirm('¿Iniciar clasificación?'))  { document.getElementById('monitor-proceso').style.display='block'; fetch('/run_clasificador',{method:'POST'}); } }
-        function iniciarSincronizador() {
-            mostrarModalCantidadSync('todos', []);
-        }
+        function iniciarSincronizador() { if(confirm('¿Iniciar sincronización de pendientes?')) { document.getElementById('monitor-proceso').style.display='block'; fetch('/run_sincronizador',{method:'POST'}); } }
+
         function marcarCardSeleccionada(chk) {
             var card = chk.closest('.expte-card');
             if (!card) return;
@@ -1205,127 +1159,33 @@ socket.on('bot_finished', function() {
                 return;
             }
 
-            mostrarModalCantidadSync('seleccionados', expedientes);
-        }
-        
-
-        function mostrarModalCantidadSync(modo, expedientes) {
-            var modalExistente = document.getElementById('modal-cantidad-sync');
-            if (modalExistente) {
-                document.body.removeChild(modalExistente);
+            if (!confirm('¿Sincronizar ' + expedientes.length + ' expediente(s) seleccionado(s)?')) {
+                return;
             }
-
-            var titulo = '📥 SINCRONIZAR PENDIENTES';
-            var texto = 'Elegí cuántas actuaciones querés descargar por expediente.';
-
-            if (modo === 'seleccionados') {
-                titulo = '☑ SINCRONIZAR SELECCIONADOS';
-                texto = 'Seleccionaste ' + expedientes.length + ' expediente(s). Elegí cuántas actuaciones descargar de cada uno.';
-            }
-
-            var modal = document.createElement('div');
-            modal.id = 'modal-cantidad-sync';
-            modal.style.cssText =
-                'position:fixed;' +
-                'top:0;' +
-                'left:0;' +
-                'width:100%;' +
-                'height:100%;' +
-                'background:rgba(0,0,0,0.82);' +
-                'z-index:9999;' +
-                'display:flex;' +
-                'align-items:center;' +
-                'justify-content:center;';
-
-            modal.innerHTML =
-                '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:28px;width:440px;font-family:var(--mono);">' +
-
-                    '<div style="color:#00bcd4;font-size:0.85rem;font-weight:700;margin-bottom:8px;">' +
-                        titulo +
-                    '</div>' +
-
-                    '<div style="color:var(--text);font-size:0.78rem;margin-bottom:20px;line-height:1.6;">' +
-                        texto +
-                        '<br><span style="color:var(--text-dim);font-size:0.68rem;">Si un expediente tiene menos actuaciones, se descargan las disponibles y queda OK.</span>' +
-                    '</div>' +
-
-                    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
-
-                        '<button onclick="confirmarSyncCantidad(\''+modo+'\', 5)" class="btn-modal-sync">' +
-                            'Últimas 5' +
-                        '</button>' +
-
-                        '<button onclick="confirmarSyncCantidad(\''+modo+'\', 10)" class="btn-modal-sync">' +
-                            'Últimas 10' +
-                        '</button>' +
-
-                        '<button onclick="confirmarSyncCantidad(\''+modo+'\', \'todas\')" class="btn-modal-sync">' +
-                            'Todas' +
-                        '</button>' +
-
-                        '<button onclick="cerrarModalCantidadSync()" class="btn-modal-sync btn-sec">' +
-                            'Cancelar' +
-                        '</button>' +
-
-                    '</div>' +
-
-                '</div>';
-
-            document.body.appendChild(modal);
-
-            window.__syncModoActual = modo;
-            window.__syncExpedientesActuales = expedientes || [];
-        }
-
-
-        function cerrarModalCantidadSync() {
-            var modal = document.getElementById('modal-cantidad-sync');
-
-            if (modal) {
-                document.body.removeChild(modal);
-            }
-        }
-
-
-        function confirmarSyncCantidad(modo, cantidad) {
-            cerrarModalCantidadSync();
 
             document.getElementById('monitor-proceso').style.display = 'block';
 
-            fetch('/run_sincronizar_con_cantidad', {
+            fetch('/run_sincronizador_selectivo', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    modo: modo,
-                    cantidad: cantidad,
-                    expedientes: window.__syncExpedientesActuales || [],
-                    lote: window.__ultimoLoteClasificado || null
-                })
+                body: JSON.stringify({ expedientes: expedientes })
             })
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                if (!data.success && !data.ok) {
-                    alert(data.message || 'No se pudo iniciar la sincronización.');
+                if (!data.success) {
+                    alert(data.message || 'No se pudo iniciar la sincronización selectiva.');
                 }
             })
             .catch(function(err) {
-                alert('Error iniciando sincronización: ' + err);
+                alert('Error iniciando sincronización selectiva: ' + err);
             });
         }
 
-       function seleccionarPendientesSync() {
+        function seleccionarPendientesSync() {
             document.querySelectorAll('.chk-sync').forEach(function(chk) {
                 var card = chk.closest('.expte-card');
                 if (!card) return;
-
-                var estado = (card.dataset.syncEstado || '').toLowerCase();
-
-                chk.checked =
-                    estado === 'pendiente' ||
-                    estado === 'parcial' ||
-                    card.dataset.syncPendiente === '1' ||
-                    estado === 'error';
-
+                chk.checked = card.dataset.syncPendiente === '1' || card.dataset.syncEstado === 'error';
                 marcarCardSeleccionada(chk);
             });
         }
@@ -1407,228 +1267,34 @@ socket.on('bot_finished', function() {
         function iniciarAuditoria() {
             var modal = document.createElement('div');
             modal.id = 'modal-auditoria';
-            modal.style.cssText =
-                'position:fixed;top:0;left:0;width:100%;height:100%;' +
-                'background:rgba(0,0,0,0.80);z-index:9999;' +
-                'display:flex;align-items:center;justify-content:center;';
-
+            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.80);z-index:9999;display:flex;align-items:center;justify-content:center;';
             modal.innerHTML =
-                '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:28px;width:500px;font-family:var(--mono);">' +
-
-                    '<div style="color:#e91e63;font-size:0.85rem;font-weight:700;margin-bottom:4px;">' +
-                        '🔎 AUDITORÍA DE EXPEDIENTES' +
-                    '</div>' +
-
-                    '<div style="color:var(--text-dim);font-size:0.7rem;margin-bottom:18px;line-height:1.6;">' +
-                        'Ingresá los expedientes uno por línea. Para interior usá:<br>' +
-                        '<span style="color:var(--text);">EXP 278678/25 - Curuzú Cuatiá</span>' +
-                    '</div>' +
-
-                    '<textarea id="auditoria-lista" style="width:100%;height:140px;background:var(--bg);border:1px solid var(--border2);color:var(--text-bright);border-radius:6px;padding:10px;font-size:0.78rem;font-family:var(--mono);resize:vertical;outline:none;margin-bottom:12px;" placeholder="C01 41481/99&#10;EXP 278678/25 - Curuzú Cuatiá&#10;MXP 10073/19 - Monte Caseros"></textarea>' +
-
-                    '<div style="margin-bottom:16px;">' +
-                        '<label style="font-size:0.62rem;color:var(--text-dim);letter-spacing:1px;display:block;margin-bottom:8px;">CARGAR DESDE EXCEL</label>' +
-                        '<input type="file" id="auditoria-excel" accept=".xlsx,.xls,.csv" style="font-size:0.72rem;color:var(--text-dim);font-family:var(--mono);">' +
-                    '</div>' +
-
-                    '<div style="margin-bottom:20px;">' +
-                        '<label style="font-size:0.62rem;color:var(--text-dim);letter-spacing:1px;display:block;margin-bottom:8px;">CANTIDAD A DESCARGAR</label>' +
-                        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
-
-                            '<button onclick="confirmarAuditoriaCantidad(5)" class="btn-modal-sync">' +
-                                'Últimas 5' +
-                            '</button>' +
-
-                            '<button onclick="confirmarAuditoriaCantidad(10)" class="btn-modal-sync">' +
-                                'Últimas 10' +
-                            '</button>' +
-
-                            '<button onclick="confirmarAuditoriaCantidad(\'todas\')" class="btn-modal-sync">' +
-                                'Todas' +
-                            '</button>' +
-
-                            '<button onclick="cerrarModalAuditoria()" class="btn-modal-sync btn-sec">' +
-                                'Cancelar' +
-                            '</button>' +
-
-                        '</div>' +
-                    '</div>' +
-
-                '</div>';
-
+                '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:28px;width:480px;font-family:var(--mono);">' +
+                '<div style="color:#e91e63;font-size:0.85rem;font-weight:700;margin-bottom:4px;">🔎 AUDITORÍA DE EXPEDIENTES</div>' +
+                '<div style="color:var(--text-dim);font-size:0.7rem;margin-bottom:18px;line-height:1.6;">Ingresá los expedientes uno por línea o cargá un Excel.</div>' +
+                '<textarea id="auditoria-lista" style="width:100%;height:140px;background:var(--bg);border:1px solid var(--border2);color:var(--text-bright);border-radius:6px;padding:10px;font-size:0.78rem;font-family:var(--mono);resize:vertical;outline:none;margin-bottom:12px;" placeholder="C01 41481/99&#10;EXP 278678/25 - Curuzú Cuatiá&#10;MXP 10073/19 - Monte Caseros&#10;..."></textarea>' +
+                '<div style="margin-bottom:16px;"><label style="font-size:0.62rem;color:var(--text-dim);letter-spacing:1px;display:block;margin-bottom:8px;">CARGAR DESDE EXCEL</label>' +
+                '<input type="file" id="auditoria-excel" accept=".xlsx,.xls,.csv" style="font-size:0.72rem;color:var(--text-dim);font-family:var(--mono);"></div>' +
+                '<div style="margin-bottom:20px;"><label style="font-size:0.62rem;color:var(--text-dim);letter-spacing:1px;display:block;margin-bottom:8px;">MODO DE DESCARGA</label>' +
+                '<div style="display:flex;gap:16px;">' +
+                '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.75rem;color:var(--text);"><input type="radio" name="auditoria-modo" value="ultimo" checked style="accent-color:#00bcd4;"> 🔔 Solo último movimiento</label>' +
+                '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.75rem;color:var(--text);"><input type="radio" name="auditoria-modo" value="completo" style="accent-color:#00bcd4;"> 📚 Ciclo completo</label>' +
+                '</div></div>' +
+                '<div style="display:flex;gap:10px;">' +
+                '<button onclick="document.body.removeChild(document.getElementById(\'modal-auditoria\'))" style="flex:1;padding:9px;background:transparent;border:1px solid var(--border2);color:var(--text);border-radius:5px;cursor:pointer;font-size:0.75rem;font-family:var(--mono);">CANCELAR</button>' +
+                '<button id="auditoria-btn-confirmar" style="flex:2;padding:9px;background:#e91e63;border:none;color:#fff;border-radius:5px;cursor:pointer;font-size:0.75rem;font-weight:700;font-family:var(--mono);">INICIAR AUDITORÍA</button>' +
+                '</div></div>';
             document.body.appendChild(modal);
-
-            var excel = document.getElementById('auditoria-excel');
-            if (excel) {
-                excel.addEventListener('change', async function() {
-                    var file = this.files[0];
-                    if (!file) return;
-
-                    var ext = file.name.split('.').pop().toLowerCase();
-
-                    if (ext === 'csv') {
-                        var text = await file.text();
-                        var lineas = text.split('\n')
-                            .map(function(l){ return l.split(',')[0].trim(); })
-                            .filter(Boolean);
-
-                        document.getElementById('auditoria-lista').value = lineas.join('\n');
-                    } else {
-                        try {
-                            var XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
-                            var buffer = await file.arrayBuffer();
-                            var wb = XLSX.read(buffer, {type:'array'});
-                            var ws = wb.Sheets[wb.SheetNames[0]];
-                            var data = XLSX.utils.sheet_to_json(ws, {header:1});
-
-                            var lineas = data
-                                .map(function(row){ return String(row[0] || '').trim(); })
-                                .filter(Boolean);
-
-                            document.getElementById('auditoria-lista').value = lineas.join('\n');
-                        } catch(e) {
-                            alert('Usá CSV o pegá los números directamente.');
-                        }
-                    }
-                });
-            }
+            document.getElementById('auditoria-btn-confirmar').onclick = function() {
+                var lista = document.getElementById('auditoria-lista').value.trim();
+                var modo  = document.querySelector('input[name="auditoria-modo"]:checked').value;
+                if (!lista) { alert('Ingresá al menos un expediente.'); return; }
+                document.body.removeChild(document.getElementById('modal-auditoria'));
+                document.getElementById('monitor-proceso').style.display = 'block';
+                var fd = new FormData(); fd.append('lista', lista); fd.append('modo', modo);
+                fetch('/run_auditoria', {method:'POST', body:fd});
+            };
         }
-
-
-        function cerrarModalAuditoria() {
-            var modal = document.getElementById('modal-auditoria');
-            if (modal) {
-                document.body.removeChild(modal);
-            }
-        }
-
-
-        function confirmarAuditoriaCantidad(cantidad) {
-            var lista = document.getElementById('auditoria-lista').value.trim();
-
-            if (!lista) {
-                alert('Ingresá al menos un expediente.');
-                return;
-            }
-
-            cerrarModalAuditoria();
-
-            document.getElementById('monitor-proceso').style.display = 'block';
-
-            var fd = new FormData();
-            fd.append('lista', lista);
-            fd.append('cantidad', cantidad);
-
-            fetch('/run_auditoria', {
-                method: 'POST',
-                body: fd
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (!data.success && !data.ok) {
-                    alert(data.message || 'No se pudo iniciar auditoría.');
-                }
-            })
-            .catch(function(err) {
-                alert('Error iniciando auditoría: ' + err);
-            });
-        }
-       function mostrarModalSincronizarCamada(data) {
-    var modalExistente = document.getElementById('modal-sync-camada');
-    if (modalExistente) {
-        document.body.removeChild(modalExistente);
-    }
-
-    window.__ultimoLoteClasificado = data.lote || null;
-    window.__syncModoActual = 'todos';
-    window.__syncExpedientesActuales = [];
-
-    console.log('[MODAL CAMADA] lote recibido:', window.__ultimoLoteClasificado);
-
-    var modal = document.createElement('div');
-    modal.id = 'modal-sync-camada';
-    modal.style.cssText =
-        'position:fixed;' +
-        'top:0;' +
-        'left:0;' +
-        'width:100%;' +
-        'height:100%;' +
-        'background:rgba(0,0,0,0.82);' +
-        'z-index:9999;' +
-        'display:flex;' +
-        'align-items:center;' +
-        'justify-content:center;';
-
-    modal.innerHTML =
-        '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:28px;width:440px;font-family:var(--mono);">' +
-
-            '<div style="color:#00bcd4;font-size:0.85rem;font-weight:700;margin-bottom:8px;">' +
-                '📚 SINCRONIZAR CAMADA IMPORTADA' +
-            '</div>' +
-
-            '<div style="color:var(--text);font-size:0.78rem;margin-bottom:20px;line-height:1.6;">' +
-                'Se clasificaron <strong style="color:var(--blue);">' + data.total + '</strong> expedientes.<br>' +
-                'Lote: <strong style="color:var(--amber);">' + (data.lote || 'SIN LOTE') + '</strong><br>' +
-                '¿Cuántas actuaciones querés descargar de cada expediente?' +
-            '</div>' +
-
-            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
-
-                '<button onclick="confirmarSyncCantidad(\'todos\', 5)" class="btn-modal-sync">' +
-                    'Últimas 5' +
-                '</button>' +
-
-                '<button onclick="confirmarSyncCantidad(\'todos\', 10)" class="btn-modal-sync">' +
-                    'Últimas 10' +
-                '</button>' +
-
-                '<button onclick="confirmarSyncCantidad(\'todos\', \'todas\')" class="btn-modal-sync">' +
-                    'Todas' +
-                '</button>' +
-
-                '<button onclick="cerrarModalCamada()" class="btn-modal-sync btn-sec">' +
-                    'Elegir después' +
-                '</button>' +
-
-            '</div>' +
-
-        '</div>';
-
-    document.body.appendChild(modal);
-}
-
-
-        function cerrarModalCamada() {
-            var modal = document.getElementById('modal-sync-camada');
-
-            if (modal) {
-                document.body.removeChild(modal);
-            }
-
-            location.reload();
-        }
-
-
-       function sincronizarCamada(cantidad) {
-
-            var modal = document.getElementById('modal-sync-camada');
-
-            if (modal) {
-                modal.remove();
-            }
-
-            document.getElementById('monitor-proceso').style.display = 'block';
-
-            var fd = new FormData();
-            fd.append('cantidad', cantidad);
-
-            fetch('/run_sincronizar_camada', {
-                method: 'POST',
-                body: fd
-            });
-        }
-
-
 
         // ── Filtro ────────────────────────────────────────────
         function filtrarExpedientes() {

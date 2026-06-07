@@ -231,176 +231,65 @@ def importar_legado():
 def importar_desde_lista():
     lista_raw = request.form.get('lista', '').strip()
     u_name = current_user.username
-    u_id = current_user.id
-
     if not lista_raw:
         return jsonify({"success": False, "message": "La lista está vacía."}), 400
-
     lineas = [l.strip() for l in lista_raw.splitlines() if l.strip()]
-
     if not lineas:
         return jsonify({"success": False, "message": "No se encontraron expedientes válidos."}), 400
-
-    def parsear_localidad(linea):
-        LOCALIDADES_VALIDAS = [
-            'Capital', 'Alvear', 'Bella Vista', 'Beron de Astrada', 'Caa Cati',
-            'Colonia Liebig', 'Concepcion', 'Curuzú Cuatiá', 'Curuzu Cuatia',
-            'Empedrado', 'Esquina', 'Gdor. Martinez', 'Gdor. Virasoro', 'Goya',
-            'Ita Ibate', 'Itati', 'Ituzaingo', 'La Cruz', 'Loreto', 'Mburucuya',
-            'Mercedes', 'Mocoreta', 'Monte Caseros', 'Paso de la Patria',
-            'Paso de los Libres', 'Perugorria', 'Saladas', 'San Carlos',
-            'San Cosme', 'San Luis del Palmar', 'San Miguel', 'San Roque',
-            'Santa Lucia', 'Santa Rosa', 'Santo Tome', 'Santo Tomé', 'Sauce', 'Yapeyu'
-        ]
-
-        localidad = "Capital"
-        texto_expte = str(linea or "").strip()
-
-        if " - " in texto_expte:
-            partes = texto_expte.rsplit(" - ", 1)
-            posible_loc = partes[1].strip()
-
-            for loc in LOCALIDADES_VALIDAS:
-                if loc.upper() == posible_loc.upper():
-                    localidad = loc
-                    texto_expte = partes[0].strip()
-                    break
-
-        return texto_expte, localidad
-
-    def parsear_identidad_expte(texto):
-        texto = str(texto or "").strip().upper()
-        texto = texto.replace("/", "-")
-        texto = re.sub(r"\s+", " ", texto)
-
-        tipo = ""
-        numero_base = ""
-        anio = ""
-
-        # EXP-118897-15 / C01-43532-1 / C01 43532-1
-        m = re.match(r"^([A-Z]{1,4}\d{0,3})[\s\-]+(\d{3,8})[\s\-]+(\d{1,4})$", texto)
-
-        if m:
-            tipo = m.group(1)
-            numero_base = m.group(2)
-            anio = m.group(3)
-        else:
-            # 118897-15
-            m = re.search(r"(\d{3,8})[\s\-]+(\d{1,4})", texto)
-            if m:
-                numero_base = m.group(1)
-                anio = m.group(2)
-            else:
-                m = re.search(r"(\d{3,8})", texto)
-                if m:
-                    numero_base = m.group(1)
-
-        numero_visible = f"{numero_base}-{anio}" if anio else numero_base
-
-        return tipo, numero_base, anio, numero_visible
-
     try:
         def hilo():
-            with app.app_context():
-                ruta_importados = os.path.join(
-                    'expedientes_clientes',
-                    u_name,
-                    'IMPORTADOS'
-                )
-                os.makedirs(ruta_importados, exist_ok=True)
+            ruta_importados = os.path.join('expedientes_clientes', u_name, 'IMPORTADOS')
+            os.makedirs(ruta_importados, exist_ok=True)
+            creados = 0
+            for linea in lineas:
+                linea = linea.strip()
+                if not linea:
+                    continue
+                nombre = re.sub(r'\s+', '_', linea).replace('/', '-')
+                ruta_expte = os.path.join(ruta_importados, nombre)
+                if not os.path.exists(ruta_expte):
+                    os.makedirs(ruta_expte)
 
-                creados = 0
-                ya_existian = 0
-                lote = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-                for linea in lineas:
-                    linea = linea.strip()
-
-                    if not linea:
-                        continue
-
-                    texto_expte, localidad = parsear_localidad(linea)
-                    tipo, numero_base, anio, numero_visible = parsear_identidad_expte(texto_expte)
-
-                    if not numero_base:
-                        socketio.emit('bot_status', {
-                            'msg': f'⚠️ Línea ignorada, no pude leer número: {linea}'
-                        })
-                        continue
-
-                    if tipo:
-                        nombre_carpeta = f"{tipo}-{numero_base}-{anio}" if anio else f"{tipo}-{numero_base}"
-                    else:
-                        nombre_carpeta = numero_visible
-
-                    nombre_carpeta = nombre_carpeta.replace("/", "-")
-                    nombre_carpeta = re.sub(r"\s+", "_", nombre_carpeta)
-
-                    ruta_expte = os.path.join(ruta_importados, nombre_carpeta)
-
-                    query = CausaInfo.query.filter(
-                        CausaInfo.usuario_id == u_id,
-                        CausaInfo.numero_base == numero_base,
-                        CausaInfo.anio == anio,
-                        CausaInfo.localidad == localidad
-                    )
-
-                    if tipo:
-                        existe_db = query.filter(CausaInfo.tipo == tipo).first()
-                    else:
-                        existe_db = query.first()
-
-                    if not os.path.exists(ruta_expte):
-                        os.makedirs(ruta_expte)
-                        carpeta_nueva = True
-                    else:
-                        carpeta_nueva = False
-
-                    
+                    # ============================================================
+                    # NUEVO — REGISTRO EN DB COMO PENDIENTE DE SINCRONIZAR
+                    # ============================================================
+                    existe_db = CausaInfo.query.filter_by(
+                        numero=nombre,
+                        usuario_id=current_user.id
+                    ).first()
 
                     if not existe_db:
                         nueva = CausaInfo(
-                            numero=numero_visible,
-                            tipo=tipo,
-                            numero_base=numero_base,
-                            anio=anio,
-                            localidad=localidad,
-                            nombre_carpeta=nombre_carpeta,
-                            usuario_id=u_id,                            
+                            numero=nombre,
+                            usuario_id=current_user.id,
                             estado="Importado",
                             necesita_sync=True,
                             estado_sync="pendiente",
-                            lote_importacion=lote
+                            lote_importacion=datetime.now().strftime("%Y%m%d_%H%M%S")
                         )
 
                         db.session.add(nueva)
                         db.session.commit()
 
-                        creados += 1
+                    creados += 1
 
-                        socketio.emit('bot_status', {
-                            'msg': f'✅ Carpeta creada: {nombre_carpeta} — {localidad}'
-                        })
+                    socketio.emit('bot_status', {
+                        'msg': f'✅ Carpeta creada: {nombre}'
+                    })
 
-                    else:
-                        ya_existian += 1
-
-                        socketio.emit('bot_status', {
-                            'msg': f'⏩ Ya existe en DB: {nombre_carpeta} — {localidad}'
-                        })
-
-                socketio.emit('bot_status', {
-                    'msg': f'🏁 Importación lista: {creados} nuevos, {ya_existian} existentes'
-                })
-                socketio.emit('bot_finished', {})
-
+                else:
+                    socketio.emit('bot_status', {
+                        'msg': f'⏩ Ya existe: {nombre}'
+                    })
+            socketio.emit('bot_status', {'msg': f'🏁 {creados} carpetas creadas en IMPORTADOS'})
+            socketio.emit('bot_finished', {})
         t = threading.Thread(target=hilo, daemon=True)
         t.start()
-
         return jsonify({"success": True})
-
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
+
+
 # ============================================================
 # DASHBOARD
 # ============================================================
@@ -662,193 +551,6 @@ def run_sincronizador_selectivo():
         "message": f"Sincronizando {len(expedientes)} expedientes seleccionados..."
     })
 
-@app.route('/run_sincronizar_camada', methods=['POST'])
-@login_required
-def run_sincronizar_camada():
-    cantidad = request.form.get('cantidad', '5')
-
-    try:
-        cantidad_int = None if cantidad == 'todas' else int(cantidad)
-    except Exception:
-        cantidad_int = 5
-
-    print(f"[CAMADA] Pedido de sincronización de camada: {cantidad}")
-
-    thread = threading.Thread(
-        target=ejecutar_sincronizacion_camada,
-        args=(
-            current_user.id,
-            current_user.username,
-            socketio,
-            app,
-            cantidad_int
-        )
-    )
-    thread.daemon = True
-    thread.start()
-
-    return jsonify({'ok': True})
-
-def ejecutar_sincronizacion_camada(usuario_id, usuario_nombre, socketio, app, cantidad_int=5):
-    from bots.sincronizador import ejecutar_completar_historial
-
-    with app.app_context():
-        pendientes = CausaInfo.query.filter(
-            CausaInfo.usuario_id == usuario_id,
-            CausaInfo.necesita_sync == True,
-            CausaInfo.estado_sync.in_(["pendiente", "parcial"])
-        ).all()
-
-        lista_exptes = []
-
-        for c in pendientes:
-            lista_exptes.append({
-                "numero": c.numero,
-                "tipo": c.tipo or "",
-                "juzgado": c.juzgado or "SIN JUZGADO",
-                "secretaria": c.secretaria or "SIN SECRETARIA",
-                "localidad": "Capital",
-                "cantidad": cantidad_int
-            })
-
-    total = len(lista_exptes)
-
-    if total == 0:
-        socketio.emit('bot_status', {
-            'msg': '📭 No hay expedientes pendientes para sincronizar',
-            'progreso': 100
-        })
-        socketio.emit('bot_finished', {})
-        return
-
-    texto_cantidad = "TODAS" if cantidad_int is None else str(cantidad_int)
-
-    socketio.emit('bot_status', {
-        'msg': f'📚 Sincronizando camada: {total} expedientes | {texto_cantidad} actuaciones por expediente',
-        'progreso': 5
-    })
-
-    ejecutar_completar_historial(
-        usuario_id,
-        usuario_nombre,
-        socketio,
-        app,
-        lista_exptes=lista_exptes
-    )
-
-@app.route('/run_sincronizar_con_cantidad', methods=['POST'])
-@login_required
-def run_sincronizar_con_cantidad():
-    data = request.get_json(silent=True) or {}
-
-    modo = data.get('modo', 'todos')
-    cantidad = data.get('cantidad', 5)
-    expedientes = data.get('expedientes', [])
-    lote = data.get('lote')
-
-    try:
-        cantidad_int = None if cantidad == 'todas' else int(cantidad)
-    except Exception:
-        cantidad_int = 5
-
-    print(
-        f"[SYNC CANTIDAD] modo={modo} "
-        f"cantidad={cantidad_int} "
-        f"expedientes={expedientes} "
-        f"lote={lote}"
-    )
-
-    thread = threading.Thread(
-        target=ejecutar_sync_con_cantidad,
-        args=(
-            current_user.id,
-            current_user.username,
-            socketio,
-            app,
-            modo,
-            cantidad_int,
-            expedientes,
-            lote
-        )
-    )
-    thread.daemon = True
-    thread.start()
-
-    return jsonify({'success': True})
-
-def ejecutar_sync_con_cantidad(
-    usuario_id,
-    usuario_nombre,
-    socketio,
-    app,
-    modo,
-    cantidad_int=5,
-    expedientes=None,
-    lote=None
-):
-    from bots.sincronizador import ejecutar_completar_historial
-
-    expedientes = expedientes or []
-
-    with app.app_context():
-        query = CausaInfo.query.filter(
-            CausaInfo.usuario_id == usuario_id,
-            CausaInfo.necesita_sync == True
-        )
-
-        if modo == "seleccionados":
-            query = query.filter(
-                CausaInfo.estado_sync.in_(["pendiente", "parcial"]),
-                CausaInfo.numero.in_(expedientes)
-            )
-        else:
-            query = query.filter(CausaInfo.estado_sync == "pendiente")
-
-        # ============================================================
-        # NUEVO: SI VIENE LOTE, SINCRONIZA SOLO ESA TANDA
-        # ============================================================
-        if lote:
-            query = query.filter(CausaInfo.lote_importacion == lote)
-
-        
-
-        causas = query.all()
-
-        lista_exptes = []
-        for c in causas:
-            lista_exptes.append({
-                "numero": c.numero,
-                "tipo": c.tipo or "",
-                "juzgado": c.juzgado or "SIN JUZGADO",
-                "secretaria": c.secretaria or "SIN SECRETARIA",
-                "localidad": c.localidad or "Capital",
-                "cantidad": cantidad_int
-            })
-
-    if not lista_exptes:
-        socketio.emit('bot_status', {
-            'msg': '📭 No hay expedientes pendientes para sincronizar en esta tanda',
-            'progreso': 100
-        })
-        socketio.emit('bot_finished', {})
-        return
-
-    txt = "TODAS" if cantidad_int is None else str(cantidad_int)
-    txt_lote = f" | lote {lote}" if lote else ""
-
-    socketio.emit('bot_status', {
-        'msg': f'📥 Sincronización con cantidad: {len(lista_exptes)} expedientes | {txt} actuaciones{txt_lote}',
-        'progreso': 5
-    })
-
-    ejecutar_completar_historial(
-        usuario_id,
-        usuario_nombre,
-        socketio,
-        app,
-        lista_exptes=lista_exptes
-    )
-
 @app.route('/run_completar_historial', methods=['POST'])
 @login_required
 @requiere_feature('sincronizar')
@@ -941,34 +643,16 @@ def run_completar_historial_selectivo():
 @login_required
 @requiere_feature('auditoria')
 def run_auditoria():
-    u_id = current_user.id
+    u_id   = current_user.id
     u_name = current_user.username
-
-    lista = request.form.get('lista', '')
-
-    cantidad = request.form.get('cantidad', '5')
-
-    try:
-        cantidad_int = None if cantidad == 'todas' else int(cantidad)
-    except Exception:
-        cantidad_int = 5
-
+    lista  = request.form.get('lista', '')
+    modo   = request.form.get('modo', 'ultimo')
     if not lista.strip():
         return jsonify({"success": False, "message": "Lista vacía"})
-
     def hilo():
         from bots.auditor import ejecutar_auditoria
-        ejecutar_auditoria(
-            u_id,
-            u_name,
-            socketio,
-            app,
-            lista,
-            cantidad_int
-        )
-
+        ejecutar_auditoria(u_id, u_name, socketio, app, lista, modo)
     threading.Thread(target=hilo, daemon=True).start()
-
     return jsonify({"success": True})
 
 
