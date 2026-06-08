@@ -868,19 +868,42 @@ def detectar_total_paginas_forum(driver):
         print(f"[DEBUG PAGINAS ERROR] {e}")
 
         return 1
+
 def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=None, max_exptes=None, matricula_override=None):
+    """
+    Actualiza expedientes desde Notificaciones Automáticas.
+
+    Fixes incluidos:
+    - Guarda SIEMPRE la localidad real detectada por ACTUALIZAR.
+    - Cuando el expediente ya existe en DB, corrige localidad/juzgado/secretaría/tipo.
+    - Cuando crea un expediente nuevo, guarda localidad/numero_base/anio.
+    - El modal de parciales usa solo expedientes tocados en esta corrida.
+    - descargar_pdfs_nuevos puede devolver int o tupla sin romper.
+    """
+
+    def _resultado_descarga_seguro(resultado, driver):
+        if isinstance(resultado, tuple):
+            nuevos, total_forum = resultado
+        else:
+            nuevos = resultado or 0
+            total_forum = getattr(driver, "paginas_forum_total", 0) or 0
+        return nuevos or 0, total_forum or 0
+
     try:
         socketio.emit('bot_status', {'msg': '🔧 Iniciando...'})
         print("[DEBUG] ejecutar_actualizacion arrancó")
-
-        print(f"[DEBUG] fecha recibida: '{fecha_str}'")
+        print(f"[DEBUG] fecha recibida: {fecha_str!r}")
 
         with app.app_context():
-         usuario    = db.session.get(Usuario, usuario_id)
-        forum_user = usuario.forum_user
-        forum_pass = usuario.forum_pass
-        matricula  = matricula_override if matricula_override else (usuario.matricula if usuario.matricula else "")
-        alcance    = usuario.alcance or 'capital'
+            usuario = db.session.get(Usuario, usuario_id)
+            if not usuario:
+                socketio.emit('bot_status', {'msg': '❌ Usuario no encontrado'})
+                return
+
+            forum_user = usuario.forum_user
+            forum_pass = usuario.forum_pass
+            matricula = matricula_override if matricula_override else (usuario.matricula if usuario.matricula else "")
+            alcance = usuario.alcance or 'capital'
 
         socketio.emit('bot_status', {'msg': '🌐 Obteniendo Chrome...'})
         driver = get_driver(temp_download_path=config.TEMP_DOWNLOAD_PATH)
@@ -898,21 +921,17 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
     t0 = time.time()
 
     exptes_actualizados = 0
-    exptes_nuevos       = 0
-    pdfs_descargados    = 0
-    exptes_sin_pdfs     = 0
+    exptes_nuevos = 0
+    pdfs_descargados = 0
+    exptes_sin_pdfs = 0
 
-
-    
-
-    # ── Acumulador para el PDF resumen (Mejora 1) ────────────────────────────
-    # Cada entrada: {"nro", "tipo", "caratula", "juzgado", "paths": [...]}
     acumulador_pdfs: list[dict] = []
 
     try:
         if not is_logged_in():
             socketio.emit('bot_status', {'msg': '🔑 Abriendo Forum...', 'progreso': 5})
             socketio.emit('bot_status', {'msg': '⚠️ Resolvé el Captcha e iniciá sesión', 'progreso': 10})
+
             if not login_forum(driver, forum_user, forum_pass):
                 socketio.emit('bot_status', {'msg': '❌ No se pudo hacer login'})
                 return
@@ -920,7 +939,11 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
             socketio.emit('bot_status', {'msg': '✅ Sesión activa, reutilizando...', 'progreso': 10})
 
         expedientes = obtener_expedientes_con_movimiento(
-         driver, matricula, socketio, fecha=fecha_str, alcance=usuario.alcance or 'capital'
+            driver,
+            matricula,
+            socketio,
+            fecha=fecha_str,
+            alcance=alcance
         )
 
         if not expedientes:
@@ -940,43 +963,46 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
         socketio.emit('bot_status', {'msg': f'📋 {total} expedientes con movimiento', 'progreso': 30})
 
         for idx, exp in enumerate(expedientes):
-            nro              = exp["nro"]
-            nro_solo         = nro.split('-')[0]
-            tipo_code        = exp.get("tipo", "")
-            juzgado_forum    = exp["juzgado"]
-            secretaria_forum = exp["secretaria"]
+            nro = exp["nro"]
+            nro_solo = nro.split('-')[0]
+            anio = nro.split('-')[1] if '-' in nro else ""
+            tipo_code = (exp.get("tipo") or "").strip()
+            juzgado_forum = exp.get("juzgado") or "SIN JUZGADO"
+            secretaria_forum = exp.get("secretaria") or "SECRETARIA UNICA"
+            localidad_forum = exp.get("localidad") or "Capital"
             progreso = int(((idx + 1) / total) * 65) + 30
 
-            # ── DEBUG ────────────────────────────────────────────────────────
-            print(f"[DEBUG EXP] tipo={tipo_code!r} nro={nro!r} nro_solo={nro_solo!r} localidad={exp.get('localidad')!r} juzgado={juzgado_forum!r}")
-            # ─────────────────────────────────────────────────────────────────
+            print(
+                f"[DEBUG EXP] tipo={tipo_code!r} nro={nro!r} nro_solo={nro_solo!r} "
+                f"localidad={localidad_forum!r} juzgado={juzgado_forum!r}"
+            )
 
             socketio.emit('bot_status', {
-                'msg': f'📥 Actualizando {tipo_code} {nro} ({idx+1}/{total})',
+                'msg': f'📥 Actualizando {tipo_code} {nro} ({idx + 1}/{total})',
                 'progreso': progreso
             })
 
-            # Entrada del acumulador para este expediente
             entrada_resumen = {
-                "nro":      nro,
-                "tipo":     tipo_code,
-                "caratula": "",   # se completa más abajo
-                "juzgado":  juzgado_forum,
-                "paths":    [],
-                "localidad": exp.get("localidad", "Capital"),
+                "nro": nro,
+                "tipo": tipo_code,
+                "caratula": "",
+                "juzgado": juzgado_forum,
+                "secretaria": secretaria_forum,
+                "paths": [],
+                "localidad": localidad_forum,
             }
 
-            causa_id         = None
-            causa_juzgado    = None
+            causa_id = None
+            causa_juzgado = None
             causa_secretaria = ""
-            causa_numero     = None
-            causa_caratula   = ""
+            causa_caratula = ""
             causa_encontrada = False
 
+            # ============================================================
+            # BUSCAR / CORREGIR DB EXISTENTE
+            # ============================================================
             with app.app_context():
                 causa = CausaInfo.query.filter(
-                    # CausaInfo.numero.contains(nro_solo),
-                    # CausaInfo.tipo == tipo_code,
                     CausaInfo.numero == nro,
                     CausaInfo.usuario_id == usuario_id
                 ).first()
@@ -987,214 +1013,249 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
                         CausaInfo.tipo == "",
                         CausaInfo.usuario_id == usuario_id
                     ).first()
-                    if causa:
-                        causa.tipo = tipo_code
-                        db.session.commit()
 
-                # ✅ FIX: extraer todos los valores dentro del contexto
                 if causa:
                     causa_encontrada = True
-                    causa_id         = causa.id
-                    causa_juzgado    = causa.juzgado
+
+                    # CLAVE: ACTUALIZAR sabe la localidad real por la lista de notificaciones.
+                    # Si DB decía Capital y el movimiento vino de Goya/Monte/etc, corregimos DB acá.
+                    causa.localidad = localidad_forum
+                    causa.juzgado = juzgado_forum or causa.juzgado
+                    causa.secretaria = secretaria_forum or causa.secretaria
+                    if tipo_code:
+                        causa.tipo = tipo_code
+
+                    if not getattr(causa, "numero_base", None):
+                        causa.numero_base = nro_solo
+                    if not getattr(causa, "anio", None):
+                        causa.anio = anio
+
+                    db.session.commit()
+
+                    causa_id = causa.id
+                    causa_juzgado = causa.juzgado
                     causa_secretaria = causa.secretaria or ""
-                    causa_numero     = causa.numero
-                    causa_caratula   = causa.demandado or ""
+                    causa_caratula = causa.demandado or ""
 
-            # ── CASO 1: No está en la DB ─────────────────────────────────────
-                if not causa_encontrada:
+                    print(
+                        f"[DEBUG DB FIX] {nro}: localidad={causa.localidad!r}, "
+                        f"juzgado={causa.juzgado!r}, tipo={causa.tipo!r}"
+                    )
 
-                    # Verificar si ya existe por número (evitar duplicados)
+            # ============================================================
+            # CASO 1: NO EXISTE EN DB
+            # ============================================================
+            if not causa_encontrada:
+                socketio.emit('bot_status', {
+                    'msg': f'🆕 {tipo_code} {nro} no estaba en DB, creando...',
+                    'progreso': progreso
+                })
+
+                exptes_nuevos += 1
+                nueva_id = None
+                caratula_real = "SIN CARATULAR"
+
+                datos_busqueda = buscar_expediente(
+                    driver,
+                    nro_solo,
+                    tipo_codigo=tipo_code if tipo_code else None,
+                    localidad=localidad_forum
+                )
+
+                if datos_busqueda:
+                    if datos_busqueda.get('caratula'):
+                        caratula_real = datos_busqueda['caratula']
+                    if datos_busqueda.get('juzgado'):
+                        juzgado_forum = datos_busqueda['juzgado']
+                    if datos_busqueda.get('secretaria'):
+                        secretaria_forum = datos_busqueda['secretaria']
+
+                entrada_resumen["caratula"] = caratula_real
+                entrada_resumen["juzgado"] = juzgado_forum
+                entrada_resumen["secretaria"] = secretaria_forum
+                entrada_resumen["localidad"] = localidad_forum
+
+                ruta = os.path.join(
+                    "expedientes_clientes",
+                    usuario_nombre,
+                    juzgado_forum,
+                    secretaria_forum,
+                    nro
+                )
+                os.makedirs(ruta, exist_ok=True)
+
+                if _entrar_a_expediente_actualizador(
+                    driver,
+                    nro,
+                    tipo_codigo=tipo_code if tipo_code else None,
+                    localidad=localidad_forum
+                ):
+                    print("[DEBUG] ENTRÓ AL CASO 1")
+
+                    total_paginas = detectar_total_paginas_forum(driver)
+                    print(f"[DEBUG] TOTAL PAGINAS = {total_paginas}")
+
+                    socketio.emit('bot_status', {
+                        'msg': f'📚 {tipo_code} {nro}: {total_paginas} páginas en Forum'
+                    })
+
                     with app.app_context():
-                        ya_existe = CausaInfo.query.filter(
-                            CausaInfo.numero == nro,
-                            CausaInfo.usuario_id == usuario_id
-                        ).first()
+                        nueva = CausaInfo(
+                            numero=nro,
+                            tipo=tipo_code,
+                            numero_base=nro_solo,
+                            anio=anio,
+                            localidad=localidad_forum,
+                            juzgado=juzgado_forum,
+                            secretaria=secretaria_forum,
+                            demandado=caratula_real,
+                            estado="En Trámite",
+                            usuario_id=usuario_id,
+                            necesita_sync=True,
+                            estado_sync="parcial",
+                            ultima_sync=datetime.utcnow(),
+                            error_sync=None,
+                            paginas_forum_total=total_paginas,
+                            paginas_descargadas_total=0
+                        )
 
-                        if not ya_existe:
-                            ya_existe = CausaInfo.query.filter(
-                                CausaInfo.numero.contains(nro_solo),
-                                CausaInfo.usuario_id == usuario_id
-                            ).first()
+                        db.session.add(nueva)
+                        db.session.commit()
+                        nueva_id = nueva.id
 
-                    if ya_existe:
-                        # Ya existe, tratar como CASO 2
+                    actualizar_estado_desde_tabla(
+                        driver,
+                        nueva_id,
+                        app,
+                        socketio,
+                        fecha_notif=fecha_str
+                    )
+
+                    pdfs_antes = set(_listar_pdfs(ruta))
+
+                    resultado_descarga = descargar_pdfs_nuevos(
+                        driver,
+                        ruta,
+                        config.TEMP_DOWNLOAD_PATH
+                    )
+                    nuevos, total_paginas = _resultado_descarga_seguro(resultado_descarga, driver)
+
+                    pdfs_despues = set(_listar_pdfs(ruta))
+                    pdfs_nuevos_paths = list(pdfs_despues - pdfs_antes)
+
+                    pdfs_descargados += nuevos
+                    entrada_resumen["paths"] = pdfs_nuevos_paths
+
+                    with app.app_context():
+                        c = db.session.get(CausaInfo, nueva_id)
+
+                        if c:
+                            total_local = len(_listar_pdfs(ruta))
+
+                            print(f"[DEBUG TOTAL NUEVO] Forum={total_paginas}")
+
+                            c.localidad = localidad_forum
+                            c.juzgado = juzgado_forum or c.juzgado
+                            c.secretaria = secretaria_forum or c.secretaria
+                            c.tipo = tipo_code or c.tipo
+                            c.numero_base = nro_solo
+                            c.anio = anio
+
+                            c.paginas_forum_total = total_paginas
+                            c.paginas_descargadas_total = total_local
+
+                            if total_paginas > 0 and total_local >= total_paginas:
+                                c.estado_sync = "sincronizado"
+                                c.necesita_sync = False
+                                c.error_sync = None
+                            else:
+                                c.estado_sync = "parcial"
+                                c.necesita_sync = True
+                                c.error_sync = "Actualizado parcialmente; falta sincronización completa"
+
+                            c.ultima_sync = datetime.utcnow()
+                            db.session.commit()
+
+                    exptes_actualizados += 1
+
+                    if nuevos > 0:
                         socketio.emit('bot_status', {
-                            'msg': f'⚠️ {tipo_code} {nro} ya existe en DB, actualizando...',
+                            'msg': f'✅ {tipo_code} {nro}: {nuevos} PDFs nuevos',
                             'progreso': progreso
                         })
-
-                        causa_encontrada = True
-                        causa_id         = ya_existe.id
-                        causa_juzgado    = ya_existe.juzgado
-                        causa_secretaria = ya_existe.secretaria or ""
-                        causa_numero     = ya_existe.numero
-                        causa_caratula   = ya_existe.demandado or ""
-
                     else:
+                        exptes_sin_pdfs += 1
                         socketio.emit('bot_status', {
-                            'msg': f'🆕 {tipo_code} {nro} no estaba en DB, creando...',
+                            'msg': f'📭 {tipo_code} {nro}: Sin PDFs nuevos',
                             'progreso': progreso
                         })
 
-                        exptes_nuevos += 1
-                        nueva_id = None
+                    try:
+                        driver.switch_to.default_content()
+                    except Exception:
+                        pass
 
-                        # Obtener carátula, juzgado y secretaria via buscar_expediente PRIMERO
-                        caratula_real = "SIN CARATULAR"
-
-                        datos_busqueda = buscar_expediente(
-                            driver,
-                            nro_solo,
-                            tipo_codigo=tipo_code,
-                            localidad=exp.get('localidad', 'Capital')
+                else:
+                    with app.app_context():
+                        nueva = CausaInfo(
+                            numero=nro,
+                            tipo=tipo_code,
+                            numero_base=nro_solo,
+                            anio=anio,
+                            localidad=localidad_forum,
+                            juzgado=juzgado_forum,
+                            secretaria=secretaria_forum,
+                            demandado=caratula_real,
+                            estado="En Trámite",
+                            usuario_id=usuario_id,
+                            necesita_sync=True,
+                            estado_sync="error",
+                            ultima_sync=datetime.utcnow(),
+                            error_sync="No se pudo entrar al expediente",
+                            paginas_forum_total=0,
+                            paginas_descargadas_total=0
                         )
 
-                        if datos_busqueda:
-                            if datos_busqueda.get('caratula'):
-                                caratula_real = datos_busqueda['caratula']
-                            if datos_busqueda.get('juzgado'):
-                                juzgado_forum = datos_busqueda['juzgado']
-                            if datos_busqueda.get('secretaria'):
-                                secretaria_forum = datos_busqueda['secretaria']
+                        db.session.add(nueva)
+                        db.session.commit()
 
-                        entrada_resumen["caratula"] = caratula_real
+                    socketio.emit('bot_status', {
+                        'msg': f'⚠️ No se pudo entrar a {tipo_code} {nro}',
+                        'progreso': progreso
+                    })
 
-                        # Crear carpeta DESPUÉS de tener juzgado y secretaria correctos
-                        ruta = os.path.join(
-                            "expedientes_clientes",
-                            usuario_nombre,
-                            juzgado_forum,
-                            secretaria_forum,
-                            nro
-                        )
+                acumulador_pdfs.append(entrada_resumen)
+                continue
 
-                        os.makedirs(ruta, exist_ok=True)
-
-                        if _entrar_a_expediente_actualizador(
-                            driver,
-                            nro,
-                            tipo_codigo=tipo_code,
-                            localidad=exp.get('localidad', 'Capital')
-                        ):
-                            print("[DEBUG] ENTRÓ AL CASO 1")
-                            # ============================================================
-                            # NUEVO — LEER TOTAL PÁGINAS FORUM
-                            # ============================================================
-
-                            total_paginas = detectar_total_paginas_forum(driver)
-                            print(f"[DEBUG] TOTAL PAGINAS = {total_paginas}")
-
-                            socketio.emit('bot_status', {
-                                'msg': f'📚 {tipo_code} {nro}: {total_paginas} páginas en Forum'
-                            })
-
-                            with app.app_context():
-                                nueva = CausaInfo(
-                                    numero=nro,
-                                    tipo=tipo_code,
-                                    juzgado=juzgado_forum,
-                                    secretaria=secretaria_forum,
-                                    demandado=caratula_real,
-                                    estado="En Trámite",
-                                    usuario_id=usuario_id,
-
-                                    necesita_sync=True,
-                                    estado_sync="parcial",
-                                    ultima_sync=datetime.utcnow(),
-                                    error_sync=None,
-
-                                    paginas_forum_total=total_paginas,
-                                    paginas_descargadas_total=0
-                                )
-
-                                db.session.add(nueva)
-                                db.session.commit()
-                                nueva_id = nueva.id
-
-                            actualizar_estado_desde_tabla(
-                                driver,
-                                nueva_id,
-                                app,
-                                socketio,
-                                fecha_notif=fecha_str
-                            )
-
-                            pdfs_antes = set(_listar_pdfs(ruta))
-
-                            nuevos, total_paginas = descargar_pdfs_nuevos(
-                                driver,
-                                ruta,
-                                config.TEMP_DOWNLOAD_PATH
-                            )
-
-                            pdfs_despues = set(_listar_pdfs(ruta))
-                            pdfs_nuevos_paths = list(pdfs_despues - pdfs_antes)
-
-                            pdfs_descargados += nuevos
-                            entrada_resumen["paths"] = pdfs_nuevos_paths
-
-                            # ============================================================
-                            # NUEVO — GUARDAR TOTALES Y ESTADO FINAL
-                            # ============================================================
-
-                            with app.app_context():
-                                c = CausaInfo.query.get(nueva_id)
-
-                                if c:
-                                    total_local = len(_listar_pdfs(ruta))
-
-                                    print(f"[DEBUG TOTAL] Forum={total_paginas}")
-                                    c.paginas_forum_total = total_paginas
-                                    c.paginas_descargadas_total = total_local
-
-                                    if total_local >= total_paginas:
-                                        c.estado_sync = "sincronizado"
-                                        c.necesita_sync = False
-                                        c.error_sync = None
-                                    else:
-                                        c.estado_sync = "parcial"
-                                        c.necesita_sync = True
-                                        c.error_sync = "Actualizado parcialmente; falta sincronización completa"
-
-                                    c.ultima_sync = datetime.utcnow()
-
-                                    db.session.commit()
-
-                            driver.switch_to.default_content()
-
-                        else:
-                            # No pudo entrar — guardar en DB con lo que tenemos
-                            with app.app_context():
-                                nueva = CausaInfo(
-                                    numero=nro,
-                                    tipo=tipo_code,
-                                    juzgado=juzgado_forum,
-                                    secretaria=secretaria_forum,
-                                    demandado=caratula_real,
-                                    estado="En Trámite",
-                                    usuario_id=usuario_id,
-
-                                    necesita_sync=True,
-                                    estado_sync="error",
-                                    ultima_sync=datetime.utcnow(),
-                                    error_sync="No se pudo entrar al expediente",
-
-                                    paginas_forum_total=0,
-                                    paginas_descargadas_total=0
-                                )
-
-                                db.session.add(nueva)
-                                db.session.commit()
-
-                        acumulador_pdfs.append(entrada_resumen)
-                        continue
-            # ── CASO 2: Está en la DB ────────────────────────────────────────
+            # ============================================================
+            # CASO 2: EXISTE EN DB
+            # ============================================================
             entrada_resumen["caratula"] = causa_caratula
 
             with app.app_context():
-                c = CausaInfo.query.get(causa_id)
+                c = db.session.get(CausaInfo, causa_id)
+
+                if c:
+                    # CLAVE: mantener DB coherente apenas ACTUALIZAR detecta la localidad.
+                    c.localidad = localidad_forum
+                    c.juzgado = juzgado_forum or c.juzgado
+                    c.secretaria = secretaria_forum or c.secretaria
+                    if tipo_code:
+                        c.tipo = tipo_code
+                    if not getattr(c, "numero_base", None):
+                        c.numero_base = nro_solo
+                    if not getattr(c, "anio", None):
+                        c.anio = anio
+                    db.session.commit()
+
                 if c and c.demandado in (None, "", "SIN CARATULAR", "CARATULA NO ENCONTRADA"):
-                    datos = buscar_expediente(driver, nro_solo, tipo_codigo=tipo_code)
+                    datos = buscar_expediente(
+                        driver,
+                        nro_solo,
+                        tipo_codigo=tipo_code if tipo_code else None,
+                        localidad=localidad_forum
+                    )
+
                     if datos and datos.get('caratula'):
                         c.demandado = datos['caratula']
                         db.session.commit()
@@ -1202,143 +1263,156 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
                         socketio.emit('bot_log', {'msg': f'📝 Carátula actualizada: {nro}'})
 
             ruta_vieja = os.path.join(
-                "expedientes_clientes", usuario_nombre,
+                "expedientes_clientes",
+                usuario_nombre,
                 causa_juzgado or juzgado_forum,
                 causa_secretaria,
                 nro
             )
+
             ruta_nueva = os.path.join(
-                "expedientes_clientes", usuario_nombre,
+                "expedientes_clientes",
+                usuario_nombre,
                 juzgado_forum,
                 secretaria_forum,
                 nro
             )
 
-            if causa_secretaria.upper() != secretaria_forum.upper() and os.path.exists(ruta_vieja):
+            if causa_secretaria and causa_secretaria.upper() != secretaria_forum.upper() and os.path.exists(ruta_vieja):
                 try:
                     os.makedirs(os.path.dirname(ruta_nueva), exist_ok=True)
                     shutil.move(ruta_vieja, ruta_nueva)
+
                     socketio.emit('bot_status', {
                         'msg': f'📦 {nro}: {causa_secretaria} → {secretaria_forum}'
                     })
+
                     with app.app_context():
-                        c = CausaInfo.query.get(causa_id)
+                        c = db.session.get(CausaInfo, causa_id)
                         if c:
                             c.secretaria = secretaria_forum
-                            c.juzgado    = juzgado_forum
+                            c.juzgado = juzgado_forum
+                            c.localidad = localidad_forum
                             db.session.commit()
+
                 except Exception as e:
                     socketio.emit('bot_status', {'msg': f'⚠️ Error moviendo: {str(e)}'})
 
             ruta_final = ruta_nueva if os.path.exists(ruta_nueva) else ruta_vieja
             os.makedirs(ruta_final, exist_ok=True)
-            if _entrar_a_expediente_actualizador(driver, nro, tipo_codigo=tipo_code, localidad=exp.get('localidad', 'Capital')):
 
-                 # ============================================================
-                # NUEVO — LEER TOTAL PÁGINAS FORUM
-                # ============================================================
-
+            if _entrar_a_expediente_actualizador(
+                driver,
+                nro,
+                tipo_codigo=tipo_code if tipo_code else None,
+                localidad=localidad_forum
+            ):
                 total_paginas = detectar_total_paginas_forum(driver)
                 print(f"[DEBUG PAGINAS] {tipo_code} {nro} → {total_paginas}")
 
                 socketio.emit('bot_status', {
                     'msg': f'📚 {tipo_code} {nro}: {total_paginas} páginas en Forum'
                 })
-            
-                actualizar_estado_desde_tabla(driver, causa_id, app, socketio, fecha_notif=fecha_str)
 
-                # ── contar PDFs antes y después ──────────────────────────────
+                actualizar_estado_desde_tabla(
+                    driver,
+                    causa_id,
+                    app,
+                    socketio,
+                    fecha_notif=fecha_str
+                )
+
                 pdfs_antes = set(_listar_pdfs(ruta_final))
 
-                nuevos, total_paginas = descargar_pdfs_nuevos(
+                resultado_descarga = descargar_pdfs_nuevos(
                     driver,
                     ruta_final,
                     config.TEMP_DOWNLOAD_PATH
                 )
+                nuevos, total_paginas = _resultado_descarga_seguro(resultado_descarga, driver)
 
                 pdfs_despues = set(_listar_pdfs(ruta_final))
                 pdfs_nuevos_paths = list(pdfs_despues - pdfs_antes)
 
                 pdfs_descargados += nuevos
-                # ============================================================
-                # NUEVO — MARCAR COMO SINCRONIZADO
-                # ============================================================
-                with app.app_context():
+                entrada_resumen["paths"] = pdfs_nuevos_paths
 
-                    c = CausaInfo.query.get(causa_id)
+                with app.app_context():
+                    c = db.session.get(CausaInfo, causa_id)
 
                     if c:
-
-                        # ============================================================
-                        # NUEVO — GUARDAR TOTALES
-                        # ============================================================
-                        print(f"[DEBUG TOTAL CASO 1] Forum={total_paginas}")
-                        c.paginas_forum_total = total_paginas
-
-                        # PDFs reales descargados en carpeta
                         total_local = len(_listar_pdfs(ruta_final))
 
+                        print(f"[DEBUG TOTAL EXISTENTE] Forum={total_paginas}")
+
+                        c.localidad = localidad_forum
+                        c.juzgado = juzgado_forum or c.juzgado
+                        c.secretaria = secretaria_forum or c.secretaria
+                        c.tipo = tipo_code or c.tipo
+                        c.numero_base = c.numero_base or nro_solo
+                        c.anio = c.anio or anio
+
+                        c.paginas_forum_total = total_paginas
                         c.paginas_descargadas_total = total_local
 
-                        # ============================================================
-                        # ESTADO AUTOMÁTICO
-                        # ============================================================
-
-                        if total_local >= total_paginas:
-
+                        if total_paginas > 0 and total_local >= total_paginas:
                             c.estado_sync = "sincronizado"
                             c.necesita_sync = False
                             c.error_sync = None
-
                         else:
-
                             c.estado_sync = "parcial"
                             c.necesita_sync = True
                             c.error_sync = "Actualizado parcialmente; falta sincronización completa"
 
                         c.ultima_sync = datetime.utcnow()
-
                         db.session.commit()
+
                 exptes_actualizados += 1
-                entrada_resumen["paths"] = pdfs_nuevos_paths
 
                 if nuevos > 0:
                     socketio.emit('bot_status', {
-                        'msg': f'✅ {tipo_code} {nro}: {nuevos} PDFs nuevos', 'progreso': progreso
+                        'msg': f'✅ {tipo_code} {nro}: {nuevos} PDFs nuevos',
+                        'progreso': progreso
                     })
                 else:
                     exptes_sin_pdfs += 1
                     socketio.emit('bot_status', {
-                        'msg': f'📭 {tipo_code} {nro}: Sin PDFs nuevos', 'progreso': progreso
-                    })
-                driver.switch_to.default_content()
-            else:
-                 
-
-                    # ============================================================
-                    # NUEVO — GUARDAR ERROR
-                    # ============================================================
-                    with app.app_context():
-
-                        c = CausaInfo.query.get(causa_id)
-
-                        if c:
-                            c.estado_sync = "error"
-                            c.error_sync = "No se pudo entrar al expediente"
-                            c.ultima_sync = datetime.utcnow()
-
-                            db.session.commit()
-
-                    socketio.emit('bot_status', {
-                        'msg': f'⚠️ No se pudo entrar a {tipo_code} {nro}',
+                        'msg': f'📭 {tipo_code} {nro}: Sin PDFs nuevos',
                         'progreso': progreso
                     })
+
+                try:
+                    driver.switch_to.default_content()
+                except Exception:
+                    pass
+
+            else:
+                with app.app_context():
+                    c = db.session.get(CausaInfo, causa_id)
+
+                    if c:
+                        # Aunque no logre entrar, la localidad real vino de Notificaciones.
+                        c.localidad = localidad_forum
+                        c.juzgado = juzgado_forum or c.juzgado
+                        c.secretaria = secretaria_forum or c.secretaria
+                        c.tipo = tipo_code or c.tipo
+                        c.estado_sync = "error"
+                        c.error_sync = "No se pudo entrar al expediente"
+                        c.ultima_sync = datetime.utcnow()
+                        db.session.commit()
+
+                socketio.emit('bot_status', {
+                    'msg': f'⚠️ No se pudo entrar a {tipo_code} {nro}',
+                    'progreso': progreso
+                })
+
             acumulador_pdfs.append(entrada_resumen)
 
-        # ── Generar PDF resumen al finalizar (Mejora 1) ──────────────────────
+        # ============================================================
+        # FIN LOOP
+        # ============================================================
         generar_pdf_resumen(acumulador_pdfs, fecha_str, socketio)
 
-        # ── Resumen en monitor ───────────────────────────────────────────────
         tiempo_total = int(time.time() - t0)
         mins = tiempo_total // 60
         segs = tiempo_total % 60
@@ -1349,17 +1423,42 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
         socketio.emit('bot_status', {'msg': '📊 RESUMEN ACTUALIZACIÓN'})
         socketio.emit('bot_status', {'msg': f'🔔 Expedientes con movimiento: {total}'})
         socketio.emit('bot_status', {'msg': f'✅ Actualizados: {exptes_actualizados}'})
+
         if exptes_nuevos > 0:
             socketio.emit('bot_status', {'msg': f'🆕 Nuevos creados: {exptes_nuevos}'})
+
         socketio.emit('bot_status', {'msg': f'📄 PDFs descargados: {pdfs_descargados}'})
         socketio.emit('bot_status', {'msg': f'📭 Sin PDFs nuevos: {exptes_sin_pdfs}'})
         socketio.emit('bot_status', {'msg': f'⏱️ Tiempo total: {tiempo_str}'})
         socketio.emit('bot_status', {'msg': '━' * 40})
-        # ============================================================
-        # NUEVO — EXPEDIENTES PARCIALES REALES DESDE DB
-        # ============================================================
 
+        # ============================================================
+        # EXPEDIENTES PARCIALES SOLO DE ESTA ACTUALIZACIÓN
+        # ============================================================
         expedientes_parciales = []
+
+        # Índice de lo que ACTUALIZAR realmente procesó en esta corrida.
+        # Esta es la fuente correcta de localidad, no la DB.
+        actualizados_por_numero = {}
+
+        for e in acumulador_pdfs:
+            nro_e = str(e.get("nro") or e.get("numero") or "").strip()
+            if not nro_e:
+                continue
+
+            actualizados_por_numero[nro_e] = {
+                "nro": nro_e,
+                "tipo": e.get("tipo", ""),
+                "juzgado": e.get("juzgado", ""),
+                "secretaria": e.get("secretaria", ""),
+                "localidad": e.get("localidad", ""),
+            }
+
+        print("=" * 80)
+        print("ACTUALIZADOS_POR_NUMERO / FUENTE PARA MODAL")
+        for k, v in actualizados_por_numero.items():
+            print(k, v)
+        print("=" * 80)
 
         with app.app_context():
 
@@ -1369,6 +1468,25 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
             ).all()
 
             for c in causas_parciales:
+                nro_c = str(c.numero or "").strip()
+
+                # CLAVE: si no estuvo en esta actualización, NO va al modal.
+                if nro_c not in actualizados_por_numero:
+                    continue
+
+                fuente = actualizados_por_numero[nro_c]
+
+                localidad_modal = fuente.get("localidad") or c.localidad or "Capital"
+                tipo_modal = fuente.get("tipo") or c.tipo or ""
+                juzgado_modal = fuente.get("juzgado") or c.juzgado or ""
+                secretaria_modal = fuente.get("secretaria") or c.secretaria or ""
+
+                print(
+                    f"[MODAL PARCIAL] {nro_c} | "
+                    f"loc_fuente={fuente.get('localidad')!r} | "
+                    f"loc_db={c.localidad!r} | "
+                    f"loc_modal={localidad_modal!r}"
+                )
 
                 faltan = max(
                     (c.paginas_forum_total or 0) -
@@ -1377,14 +1495,23 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
                 )
 
                 expedientes_parciales.append({
-                    "nro": c.numero,
+                    "nro": nro_c,
+                    "numero": nro_c,
                     "forum_total": c.paginas_forum_total or 0,
                     "descargadas": c.paginas_descargadas_total or 0,
                     "faltan": faltan,
-                    "juzgado": c.juzgado or "",
-                    "secretaria": c.secretaria or "",
-                    "tipo": c.tipo or ""
+                    "juzgado": juzgado_modal,
+                    "secretaria": secretaria_modal,
+                    "tipo": tipo_modal,
+                    "localidad": localidad_modal,
                 })
+
+        print("=" * 80)
+        print("EXPEDIENTES_PARCIALES QUE VAN AL MODAL")
+        for e in expedientes_parciales:
+            print(e)
+        print("=" * 80)
+
         socketio.emit('actualizacion_completa', {
             'total': total,
             'pdfs': pdfs_descargados,
@@ -1401,7 +1528,6 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
             ],
 
             'expedientes_parciales': expedientes_parciales,
-
             'tiempo': tiempo_str
         })
 
@@ -1409,6 +1535,7 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
         import traceback
         traceback.print_exc()
         socketio.emit('bot_status', {'msg': f'❌ Error crítico: {str(e)}'})
+
     finally:
         marcar_libre()
         release_driver()

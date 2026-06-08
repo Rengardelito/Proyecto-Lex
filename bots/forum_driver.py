@@ -693,47 +693,90 @@ def sincronizar_pdfs(
             return False
 
     def _descargar_fila(boton, numero_id, nombre_final, ruta_local, temp_download_path):
-        archivos_antes = set(os.listdir(temp_download_path))
+        intentos = 2
 
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", boton)
-        t_mod.sleep(0.3)
-        driver.execute_script("arguments[0].click();", boton)
+        for intento in range(1, intentos + 1):
+            try:
+                archivos_antes = set(os.listdir(temp_download_path))
 
-        archivo_descargado = None
-
-        for _ in range(30):
-            t_mod.sleep(0.5)
-
-            archivos_despues = set(os.listdir(temp_download_path))
-            nuevos = archivos_despues - archivos_antes
-
-            archivos_completos = [
-                f for f in nuevos
-                if (f.lower().endswith(".pdf") or f.lower().endswith(".rtf"))
-                and not f.endswith(".crdownload")
-            ]
-
-            if archivos_completos:
-                archivo_descargado = archivos_completos[0]
-                ruta_temp = os.path.join(temp_download_path, archivo_descargado)
-
-                if os.path.exists(ruta_temp):
-                    size1 = os.path.getsize(ruta_temp)
-                    t_mod.sleep(1)
-                    size2 = os.path.getsize(ruta_temp)
-
-                    if size1 == size2 and size1 > 500:
-                        break
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", boton)
+                t_mod.sleep(0.4)
+                driver.execute_script("arguments[0].click();", boton)
 
                 archivo_descargado = None
 
-        if not archivo_descargado:
-            return False
+                for _ in range(40):
+                    t_mod.sleep(0.5)
 
-        origen = os.path.join(temp_download_path, archivo_descargado)
-        destino = os.path.join(ruta_local, nombre_final + ".pdf")
+                    archivos_despues = set(os.listdir(temp_download_path))
+                    nuevos = archivos_despues - archivos_antes
 
-        return _mover_archivo(origen, destino)
+                    # Si Chrome dejó un .crdownload, todavía está bajando o falló.
+                    incompletos = [
+                        f for f in nuevos
+                        if f.lower().endswith(".crdownload")
+                    ]
+
+                    archivos_completos = [
+                        f for f in nuevos
+                        if (f.lower().endswith(".pdf") or f.lower().endswith(".rtf"))
+                        and not f.lower().endswith(".crdownload")
+                    ]
+
+                    if archivos_completos:
+                        candidato = archivos_completos[0]
+                        ruta_temp = os.path.join(temp_download_path, candidato)
+
+                        if os.path.exists(ruta_temp):
+                            size1 = os.path.getsize(ruta_temp)
+                            t_mod.sleep(1)
+                            size2 = os.path.getsize(ruta_temp)
+
+                            if size1 == size2 and size1 > 500:
+                                archivo_descargado = candidato
+                                break
+
+                    # Si no hay completos pero hay crdownload, seguimos esperando.
+                    if incompletos:
+                        continue
+
+                if not archivo_descargado:
+                    print(f"⚠️ Intento {intento}/{intentos} falló: {nombre_final}")
+                    print("   Motivo probable: Chrome bloqueó/canceló la descarga o el archivo no terminó de bajar.")
+
+                    # cerrar pestaña extra si se abrió
+                    try:
+                        if len(driver.window_handles) > 1:
+                            driver.switch_to.window(driver.window_handles[-1])
+                            driver.close()
+                            driver.switch_to.window(driver.window_handles[0])
+                    except Exception:
+                        pass
+
+                    t_mod.sleep(1)
+                    continue
+
+                origen = os.path.join(temp_download_path, archivo_descargado)
+                destino = os.path.join(ruta_local, nombre_final + ".pdf")
+
+                if _mover_archivo(origen, destino):
+                    return True
+
+            except Exception as e:
+                print(f"⚠️ Error intento {intento}/{intentos} descargando {nombre_final}: {e}")
+
+                try:
+                    if len(driver.window_handles) > 1:
+                        driver.switch_to.window(driver.window_handles[-1])
+                        driver.close()
+                        driver.switch_to.window(driver.window_handles[0])
+                except Exception:
+                    pass
+
+                t_mod.sleep(1)
+
+        print(f"❌ DESCARGA FALLIDA DEFINITIVA: {nombre_final} | ID:{numero_id}")
+        return False
 
     def _buscar_boton_siguiente():
         posibles = driver.find_elements(

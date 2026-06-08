@@ -1121,11 +1121,17 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
 
                             pdfs_antes = set(_listar_pdfs(ruta))
 
-                            nuevos, total_paginas = descargar_pdfs_nuevos(
+                            resultado_descarga = descargar_pdfs_nuevos(
                                 driver,
                                 ruta,
                                 config.TEMP_DOWNLOAD_PATH
                             )
+
+                            if isinstance(resultado_descarga, tuple):
+                                nuevos, total_paginas = resultado_descarga
+                            else:
+                                nuevos = resultado_descarga
+                                total_paginas = getattr(driver, "paginas_forum_total", 0) or 0
 
                             pdfs_despues = set(_listar_pdfs(ruta))
                             pdfs_nuevos_paths = list(pdfs_despues - pdfs_antes)
@@ -1250,11 +1256,17 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
                 # ── contar PDFs antes y después ──────────────────────────────
                 pdfs_antes = set(_listar_pdfs(ruta_final))
 
-                nuevos, total_paginas = descargar_pdfs_nuevos(
-                    driver,
-                    ruta_final,
-                    config.TEMP_DOWNLOAD_PATH
-                )
+                resultado_descarga = descargar_pdfs_nuevos(
+                driver,
+                ruta_final,
+                config.TEMP_DOWNLOAD_PATH
+            )
+
+            if isinstance(resultado_descarga, tuple):
+                nuevos, total_paginas = resultado_descarga
+            else:
+                nuevos = resultado_descarga
+                total_paginas = getattr(driver, "paginas_forum_total", 0) or 0
 
                 pdfs_despues = set(_listar_pdfs(ruta_final))
                 pdfs_nuevos_paths = list(pdfs_despues - pdfs_antes)
@@ -1312,7 +1324,7 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
                         'msg': f'📭 {tipo_code} {nro}: Sin PDFs nuevos', 'progreso': progreso
                     })
                 driver.switch_to.default_content()
-            else:
+        else:
                  
 
                     # ============================================================
@@ -1333,7 +1345,7 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
                         'msg': f'⚠️ No se pudo entrar a {tipo_code} {nro}',
                         'progreso': progreso
                     })
-            acumulador_pdfs.append(entrada_resumen)
+        acumulador_pdfs.append(entrada_resumen)
 
         # ── Generar PDF resumen al finalizar (Mejora 1) ──────────────────────
         generar_pdf_resumen(acumulador_pdfs, fecha_str, socketio)
@@ -1362,28 +1374,46 @@ def ejecutar_actualizacion(usuario_id, usuario_nombre, socketio, app, fecha_str=
         expedientes_parciales = []
 
         with app.app_context():
+            numeros_actualizados = {
+                str(e.get('nro') or e.get('numero') or '').strip()
+                for e in acumulador_pdfs
+                if str(e.get('nro') or e.get('numero') or '').strip()
+            }
 
             causas_parciales = CausaInfo.query.filter(
                 CausaInfo.usuario_id == usuario_id,
                 CausaInfo.estado_sync == "parcial"
             ).all()
 
+            print("=" * 80)
+            print("ACUMULADOR_PDFS")
+            print(f"Cantidad: {len(acumulador_pdfs)}")
+            for e in acumulador_pdfs[:10]:
+                print(e)
+
+            print("=" * 80)
+            print("NUMEROS_ACTUALIZADOS:")
+            print(numeros_actualizados)
+
             for c in causas_parciales:
+                if str(c.numero).strip() not in numeros_actualizados:
+                    continue
 
                 faltan = max(
-                    (c.paginas_forum_total or 0) -
-                    (c.paginas_descargadas_total or 0),
+                    (c.paginas_forum_total or 0) - (c.paginas_descargadas_total or 0),
                     0
                 )
 
                 expedientes_parciales.append({
+                    "id": c.id,
                     "nro": c.numero,
                     "forum_total": c.paginas_forum_total or 0,
                     "descargadas": c.paginas_descargadas_total or 0,
                     "faltan": faltan,
                     "juzgado": c.juzgado or "",
                     "secretaria": c.secretaria or "",
-                    "tipo": c.tipo or ""
+                    "tipo": c.tipo or "",
+                    "localidad": c.localidad or "Capital",
                 })
         socketio.emit('actualizacion_completa', {
             'total': total,

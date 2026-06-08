@@ -557,15 +557,37 @@ def run_sincronizador_selectivo():
 def run_completar_historial():
     u_id, u_name = current_user.id, current_user.username
     max_exptes = max_exptes_trial(current_user)
-    # Recibir lista de expedientes si viene del actualizador
+
     import json
+
     lista_json = request.form.get('expedientes', '')
+
+    print("=" * 80)
+    print("RAW FORM expedientes:")
+    print(lista_json)
+    print("=" * 80)
+
     lista_exptes = json.loads(lista_json) if lista_json else None
+
+    print("LISTA_EXPTES PARSEADA:")
+    if lista_exptes:
+        for e in lista_exptes:
+            print(e)
+    else:
+        print(None)
+    print("=" * 80)
+
     def hilo():
         from bots.sincronizador import ejecutar_completar_historial
-        ejecutar_completar_historial(u_id, u_name, socketio, app, 
-                                      max_exptes=max_exptes, 
-                                      lista_exptes=lista_exptes)
+        ejecutar_completar_historial(
+            u_id,
+            u_name,
+            socketio,
+            app,
+            max_exptes=max_exptes,
+            lista_exptes=lista_exptes
+        )
+
     threading.Thread(target=hilo, daemon=True).start()
     return jsonify({"success": True})
 

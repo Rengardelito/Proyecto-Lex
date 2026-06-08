@@ -359,89 +359,124 @@ def descargar_pdfs_nuevos(driver, ruta_local, temp_download_path):
     descargas = 0
     main_window = driver.current_window_handle
 
+    def _salida():
+        return descargas, getattr(driver, "paginas_forum_total", 0) or 0
+
     try:
         wait = WebDriverWait(driver, 15)
         wait.until(EC.presence_of_element_located((By.XPATH, "//table//tbody")))
         time.sleep(0.5)
-    except:
+    except Exception:
         print("❌ No se detectó tabla de actuaciones")
-        return 0
+        return 0, 0
 
     idx_map = {}
+
     try:
-        headers = driver.find_elements(By.XPATH, "//table[contains(@class, 'Grid')]//tr[1]/th")
+        tabla = esperar_tabla_actuaciones(driver, timeout=20)
+        headers = tabla.find_elements(By.XPATH, ".//tr[1]/th")
+
         for i, h in enumerate(headers):
             texto = h.text.strip().upper()
+
             if 'FECHA' in texto:
                 idx_map['fecha'] = i
             elif any(x in texto for x in ['EXTRACTO', 'DETALLE', 'DESCRIPCION']):
                 idx_map['extracto'] = i
             elif any(x in texto for x in ['TIPO', 'DOCUMENTO', 'DOC']):
                 idx_map['tipo'] = i
+            elif 'NUMERO' in texto or 'NÚMERO' in texto or texto == 'NUM':
+                idx_map['numero'] = i
 
         if 'fecha' not in idx_map:
             print("⚠️ No se encontró columna Fecha")
-            return 0
+            return 0, 0
+
     except Exception as e:
         print(f"Error detectando headers: {e}")
-        return 0
+        return 0, 0
 
-    filas = driver.find_elements(By.XPATH, "//table//tbody/tr")
+    try:
+        filas = tabla.find_elements(By.XPATH, ".//tbody/tr")
+    except Exception:
+        filas = driver.find_elements(By.XPATH, "//table//tbody/tr")
+
     print(f"🔍 {len(filas)} filas en tabla de actuaciones")
 
-   # ============================================================
-    # NUEVO — DETECTAR TOTAL REAL DE ACTUACIONES
-    # ============================================================
-
-    driver.paginas_forum_total = contar_actuaciones_forum(driver)
+    try:
+        driver.paginas_forum_total = contar_actuaciones_forum(driver)
+    except Exception as e:
+        print(f"⚠️ No se pudo contar actuaciones Forum: {e}")
+        driver.paginas_forum_total = 0
 
     print(f"[DEBUG ACTUACIONES] Total real Forum = {driver.paginas_forum_total}")
 
-    tabla = esperar_tabla_actuaciones(driver, timeout=20)
-    filas = tabla.find_elements(By.XPATH, ".//tbody/tr")
+    try:
+        tabla = esperar_tabla_actuaciones(driver, timeout=20)
+        filas = tabla.find_elements(By.XPATH, ".//tbody/tr")
+    except Exception as e:
+        print(f"⚠️ No se pudo refrescar tabla de actuaciones: {e}")
+        return _salida()
+
     fecha_mas_reciente = None
+
     for fila in filas:
         try:
             celdas = fila.find_elements(By.TAG_NAME, "td")
+
             if len(celdas) <= idx_map['fecha']:
                 continue
+
             fecha_str = celdas[idx_map['fecha']].text.strip()
+
             if re.search(r'\d{1,2}/\d{1,2}/\d{2,4}', fecha_str):
                 fecha_mas_reciente = fecha_str
                 break
+
         except Exception:
             continue
 
     if not fecha_mas_reciente:
         print("⚠️ No se encontró ninguna fecha válida en la tabla")
-        return 0
+        return _salida()
 
     print(f"📅 Fecha más reciente: {fecha_mas_reciente}")
 
     archivos_locales = set()
+
     if os.path.exists(ruta_local):
         for f in os.listdir(ruta_local):
             if f.lower().endswith('.pdf'):
                 archivos_locales.add(f.replace('.pdf', '').strip())
 
-    fecha_dt = datetime.strptime(fecha_mas_reciente, "%d/%m/%Y")
+    try:
+        fecha_dt = datetime.strptime(fecha_mas_reciente, "%d/%m/%Y")
+    except ValueError:
+        print(f"⚠️ Fecha inválida: {fecha_mas_reciente}")
+        return _salida()
+
     fecha_iso = fecha_dt.strftime("%Y-%m-%d")
 
     fila_idx = 0
+
     while fila_idx < len(filas):
         fila = filas[fila_idx]
+
         try:
             celdas = fila.find_elements(By.TAG_NAME, "td")
+
             if len(celdas) < 3:
                 fila_idx += 1
                 continue
 
             fecha_str = celdas[idx_map['fecha']].text.strip()
+
             if fecha_str != fecha_mas_reciente:
                 fila_idx += 1
                 continue
 
             tipo_str = ""
+
             if 'extracto' in idx_map and idx_map['extracto'] < len(celdas):
                 tipo_str = celdas[idx_map['extracto']].text.strip()[:50]
             elif 'tipo' in idx_map and idx_map['tipo'] < len(celdas):
@@ -449,36 +484,33 @@ def descargar_pdfs_nuevos(driver, ruta_local, temp_download_path):
             elif len(celdas) > 2:
                 tipo_str = celdas[2].text.strip()[:50]
 
-            nombre_check = f"{fecha_iso} - {tipo_str}".replace("/", "_").replace(":", "").replace("\\", "").strip()
+            tipo_str = re.sub(r'[\\/*?:"<>|]', "_", tipo_str)
+
+            numero_id = ""
+
+            if 'numero' in idx_map and idx_map['numero'] < len(celdas):
+                numero_id = celdas[idx_map['numero']].text.strip()
+            elif len(celdas) > 4:
+                numero_id = celdas[4].text.strip()
+
+            base_nombre = f"{fecha_iso} - {tipo_str}".replace("/", "_").replace(":", "").replace("\\", "").strip()
+
+            nombre_check = base_nombre
+
             if nombre_check in archivos_locales:
                 print(f"⏩ Ya existe: {nombre_check}")
                 fila_idx += 1
                 continue
 
-            numero_id = ""
-
-            try:
-                if len(celdas) > 4:
-                    numero_id = celdas[4].text.strip()
-            except:
-                pass
-
-            base_nombre = f"{fecha_iso} - {tipo_str}"
-            base_nombre = (
-                base_nombre
-                .replace("/", "_")
-                .replace(":", "")
-                .replace("\\", "")
-                .strip()
-            )
-
             if numero_id:
                 nombre_final = f"{base_nombre}_{numero_id}.pdf"
             else:
                 nombre_final = f"{base_nombre}.pdf"
+
             dest_final = os.path.join(ruta_local, nombre_final)
 
             print(f"📥 Descargando: {nombre_final}")
+
             archivos_antes = set(os.listdir(temp_download_path))
 
             try:
@@ -488,12 +520,13 @@ def descargar_pdfs_nuevos(driver, ruta_local, temp_download_path):
                 driver.execute_script("arguments[0].click();", boton)
 
                 archivo_movido = False
+
                 for _ in range(15):
                     time.sleep(1)
+
                     archivos_despues = set(os.listdir(temp_download_path))
                     nuevos = archivos_despues - archivos_antes
 
-                    # ── SOPORTE RTF: aceptar .pdf y .rtf ──────────────
                     archivos_completos = [
                         f for f in nuevos
                         if (f.lower().endswith('.pdf') or f.lower().endswith('.rtf'))
@@ -502,11 +535,13 @@ def descargar_pdfs_nuevos(driver, ruta_local, temp_download_path):
 
                     if archivos_completos:
                         origen = os.path.join(temp_download_path, archivos_completos[0])
+
                         if _mover_archivo(origen, dest_final):
                             print(f"✅ Guardado: {nombre_final}")
                             descargas += 1
                             archivo_movido = True
                             archivos_locales.add(nombre_final.replace('.pdf', '').strip())
+
                         break
 
                 if not archivo_movido:
@@ -519,6 +554,7 @@ def descargar_pdfs_nuevos(driver, ruta_local, temp_download_path):
 
             except Exception as e:
                 print(f"⚠️ Error descargando fila {fila_idx}: {e}")
+
                 if len(driver.window_handles) > 1:
                     driver.switch_to.window(driver.window_handles[-1])
                     driver.close()
@@ -529,7 +565,7 @@ def descargar_pdfs_nuevos(driver, ruta_local, temp_download_path):
 
         fila_idx += 1
 
-    return descargas, getattr(driver, "paginas_forum_total", 0)
+    return descargas, getattr(driver, "paginas_forum_total", 0) or 0
 
 def leer_caratula_desde_pagina(driver) -> str:
     """
